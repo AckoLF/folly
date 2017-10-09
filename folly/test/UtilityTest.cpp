@@ -14,9 +14,10 @@
  * limitations under the License.
  */
 
-#include <folly/Utility.h>
+#include <type_traits>
 
-#include <gtest/gtest.h>
+#include <folly/Utility.h>
+#include <folly/portability/GTest.h>
 
 namespace {
 
@@ -74,4 +75,47 @@ TEST_F(UtilityTest, as_const) {
   EXPECT_TRUE(folly::as_const(s).member());
   EXPECT_EQ(&s, &folly::as_const(s));
   EXPECT_TRUE(noexcept(folly::as_const(s)));
+}
+
+TEST(FollyIntegerSequence, core) {
+  constexpr auto seq = folly::integer_sequence<int, 0, 3, 2>();
+  static_assert(seq.size() == 3, "");
+  EXPECT_EQ(3, seq.size());
+
+  auto seq2 = folly::index_sequence<0, 4, 3>();
+  EXPECT_EQ(3, seq2.size());
+
+  constexpr auto seq3 = folly::make_index_sequence<3>();
+  static_assert(seq3.size() == 3, "");
+  EXPECT_EQ(3, seq3.size());
+
+  // check our own implementation even when the builtin is available
+  using seq4 = typename folly::utility_detail::make_seq<5>::template apply<
+      folly::integer_sequence<int>,
+      folly::integer_sequence<int, 0>>;
+  EXPECT_EQ(5, seq4{}.size());
+  EXPECT_TRUE((std::is_same<seq4::value_type, int>::value));
+  using seq4_expected = folly::integer_sequence<int, 0, 1, 2, 3, 4>;
+  EXPECT_TRUE((std::is_same<seq4, seq4_expected>::value));
+}
+
+TEST_F(UtilityTest, MoveOnly) {
+  class FooBar : folly::MoveOnly {
+    int a;
+  };
+
+  static_assert(
+      !std::is_copy_constructible<FooBar>::value,
+      "Should not be copy constructible");
+
+  // Test that move actually works.
+  FooBar foobar;
+  FooBar foobar2(std::move(foobar));
+  (void)foobar2;
+
+  // Test that inheriting from MoveOnly doesn't prevent the move
+  // constructor from being noexcept.
+  static_assert(
+      std::is_nothrow_move_constructible<FooBar>::value,
+      "Should have noexcept move constructor");
 }

@@ -253,7 +253,18 @@ T testValue(int bits) {
   CHECK_LE(value, std::numeric_limits<T>::max());
   return static_cast<T>(value);
 }
-} // anonymous namespace
+} // namespace
+
+TEST(Bits, Boundaries) {
+  uint8_t buf[20];
+  for (size_t offset = 0; offset <= 64; ++offset) {
+    for (size_t size = 0; size <= 32; ++size) {
+      int32_t value = testValue<int32_t>(size);
+      testSet<true>(buf, offset, size, value);
+      EXPECT_EQ(value, (testGet<true, int32_t>(buf, offset, size)));
+    }
+  }
+}
 
 template <size_t N>
 void accSize(size_t& w) {

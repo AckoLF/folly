@@ -117,7 +117,7 @@ void SharedPromise<T>::setTry(Try<T>&& t) {
   {
     std::lock_guard<std::mutex> g(mutex_);
     if (hasValue_) {
-      throw PromiseAlreadySatisfied();
+      throwPromiseAlreadySatisfied();
     }
     hasValue_ = true;
     try_ = std::move(t);
@@ -131,6 +131,7 @@ void SharedPromise<T>::setTry(Try<T>&& t) {
 
 template <class T>
 bool SharedPromise<T>::isFulfilled() {
+  std::lock_guard<std::mutex> g(mutex_);
   return hasValue_;
 }
 

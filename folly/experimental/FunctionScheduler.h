@@ -18,11 +18,13 @@
 
 #include <folly/Function.h>
 #include <folly/Range.h>
+#include <folly/Hash.h>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <thread>
 #include <vector>
+#include <unordered_map>
 
 namespace folly {
 
@@ -42,7 +44,9 @@ namespace folly {
  *
  *
  * Note: the class uses only one thread - if you want to use more than one
- *       thread use multiple FunctionScheduler objects
+ *       thread, either use multiple FunctionScheduler objects, or check out
+ *       ThreadedRepeatingFunctionRunner.h for a much simpler contract of
+ *       "run each function periodically in its own thread".
  *
  * start() schedules the functions, while shutdown() terminates further
  * scheduling.
@@ -239,20 +243,21 @@ class FunctionScheduler {
   };
 
   struct RunTimeOrder {
-    bool operator()(const RepeatFunc& f1, const RepeatFunc& f2) const {
-      return f1.getNextRunTime() > f2.getNextRunTime();
+    bool operator()(const std::unique_ptr<RepeatFunc>& f1, const std::unique_ptr<RepeatFunc>& f2) const {
+      return f1->getNextRunTime() > f2->getNextRunTime();
     }
   };
 
-  typedef std::vector<RepeatFunc> FunctionHeap;
+  typedef std::vector<std::unique_ptr<RepeatFunc>> FunctionHeap;
+  typedef std::unordered_map<StringPiece, RepeatFunc*, Hash> FunctionMap;
 
   void run();
   void runOneFunction(std::unique_lock<std::mutex>& lock,
                       std::chrono::steady_clock::time_point now);
   void cancelFunction(const std::unique_lock<std::mutex>& lock,
-                      FunctionHeap::iterator it);
+                      RepeatFunc* it);
   void addFunctionToHeap(const std::unique_lock<std::mutex>& lock,
-                         RepeatFunc&& func);
+                         std::unique_ptr<RepeatFunc> func);
 
   void addFunctionInternal(
       Function<void()>&& cb,
@@ -261,6 +266,12 @@ class FunctionScheduler {
       const std::string& intervalDescr,
       std::chrono::milliseconds startDelay,
       bool runOnce);
+
+  // Return true if the current function is being canceled
+  bool cancelAllFunctionsWithLock(std::unique_lock<std::mutex>& lock);
+  bool cancelFunctionWithLock(
+      std::unique_lock<std::mutex>& lock,
+      StringPiece nameID);
 
   std::thread thread_;
 
@@ -271,6 +282,7 @@ class FunctionScheduler {
   // The functions to run.
   // This is a heap, ordered by next run time.
   FunctionHeap functions_;
+  FunctionMap functionsMap_;
   RunTimeOrder fnCmp_;
 
   // The function currently being invoked by the running thread.
@@ -283,6 +295,7 @@ class FunctionScheduler {
 
   std::string threadName_;
   bool steady_{false};
+  bool cancellingCurrentFunction_{false};
 };
 
 }

@@ -17,22 +17,15 @@
 #pragma once
 #define FOLLY_STRING_H_
 
+#include <cstdarg>
 #include <exception>
-#include <stdarg.h>
 #include <string>
-#include <vector>
-#include <boost/type_traits.hpp>
-#include <boost/regex/pending/unicode_iterator.hpp>
-
-#ifdef FOLLY_HAVE_DEPRECATED_ASSOC
-#ifdef _GLIBCXX_SYMVER
-#include <ext/hash_set>
-#include <ext/hash_map>
-#endif
-#endif
-
-#include <unordered_set>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
+
+#include <boost/regex/pending/unicode_iterator.hpp>
+#include <boost/type_traits.hpp>
 
 #include <folly/Conv.h>
 #include <folly/ExceptionString.h>
@@ -218,12 +211,15 @@ std::string& stringVAppendf(std::string* out, const char* format, va_list ap);
  * C++, use cEscape instead.  This function is for display purposes
  * only.
  */
-template <class String1, class String2>
-void backslashify(const String1& input, String2& output, bool hex_style=false);
+template <class OutputString>
+void backslashify(
+    folly::StringPiece input,
+    OutputString& output,
+    bool hex_style = false);
 
-template <class String>
-String backslashify(const String& input, bool hex_style=false) {
-  String output;
+template <class OutputString = std::string>
+OutputString backslashify(StringPiece input, bool hex_style = false) {
+  OutputString output;
   backslashify(input, output, hex_style);
   return output;
 }
@@ -256,7 +252,7 @@ String humanify(const String& input) {
  * If append_output is true, append data to the output rather than
  * replace it.
  */
-template<class InputString, class OutputString>
+template <class InputString, class OutputString>
 bool hexlify(const InputString& input, OutputString& output,
              bool append=false);
 
@@ -279,7 +275,7 @@ OutputString hexlify(StringPiece input) {
  * Same functionality as Python's binascii.unhexlify.  Returns true
  * on successful conversion.
  */
-template<class InputString, class OutputString>
+template <class InputString, class OutputString>
 bool unhexlify(const InputString& input, OutputString& output);
 
 template <class OutputString = std::string>
@@ -416,20 +412,23 @@ fbstring errnoStr(int err);
  * or not (generating empty tokens).
  */
 
-template<class Delim, class String, class OutputType>
+template <class Delim, class String, class OutputType>
 void split(const Delim& delimiter,
            const String& input,
            std::vector<OutputType>& out,
            const bool ignoreEmpty = false);
 
-template<class Delim, class String, class OutputType>
+template <class Delim, class String, class OutputType>
 void split(const Delim& delimiter,
            const String& input,
            folly::fbvector<OutputType>& out,
            const bool ignoreEmpty = false);
 
-template<class OutputValueType, class Delim, class String,
-         class OutputIterator>
+template <
+    class OutputValueType,
+    class Delim,
+    class String,
+    class OutputIterator>
 void splitTo(const Delim& delimiter,
              const String& input,
              OutputIterator out,
@@ -565,11 +564,12 @@ std::string join(const Delim& delimiter,
   return output;
 }
 
-template <class Delim,
-          class Iterator,
-          typename std::enable_if<std::is_same<
-              typename std::iterator_traits<Iterator>::iterator_category,
-              std::random_access_iterator_tag>::value>::type* = nullptr>
+template <
+    class Delim,
+    class Iterator,
+    typename std::enable_if<std::is_same<
+        typename std::iterator_traits<Iterator>::iterator_category,
+        std::random_access_iterator_tag>::value>::type* = nullptr>
 std::string join(const Delim& delimiter, Iterator begin, Iterator end) {
   std::string output;
   join(delimiter, begin, end, output);
@@ -621,7 +621,7 @@ std::string stripLeftMargin(std::string s);
  * Leaves all other characters unchanged, including those with the 0x80
  * bit set.
  * @param str String to convert
- * @param len Length of str, in bytes
+ * @param length Length of str, in bytes
  */
 void toLowerAscii(char* str, size_t length);
 
@@ -629,8 +629,14 @@ inline void toLowerAscii(MutableStringPiece str) {
   toLowerAscii(str.begin(), str.size());
 }
 
-template <class Iterator = const char*,
-          class Base = folly::Range<boost::u8_to_u32_iterator<Iterator>>>
+inline void toLowerAscii(std::string& str) {
+  // str[0] is legal also if the string is empty.
+  toLowerAscii(&str[0], str.size());
+}
+
+template <
+    class Iterator = const char*,
+    class Base = folly::Range<boost::u8_to_u32_iterator<Iterator>>>
 class UTF8Range : public Base {
  public:
   /* implicit */ UTF8Range(const folly::Range<Iterator> baseRange)

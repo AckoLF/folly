@@ -16,8 +16,10 @@
 
 #pragma once
 
-#include <stdexcept>
 #include <iterator>
+#include <stdexcept>
+
+#include <folly/CppAttributes.h>
 
 #ifndef FOLLY_STRING_H_
 #error This file may only be included from String.h
@@ -31,7 +33,7 @@ namespace detail {
 // an octal escape sequence, or 'P' if the character is printable and
 // should be printed as is.
 extern const char cEscapeTable[];
-}  // namespace detail
+} // namespace detail
 
 template <class String>
 void cEscape(StringPiece str, String& out) {
@@ -78,7 +80,7 @@ extern const char cUnescapeTable[];
 
 // Map from the character code to the hex value, or 16 if invalid hex char.
 extern const unsigned char hexTable[];
-}  // namespace detail
+} // namespace detail
 
 template <class String>
 void cUnescape(StringPiece str, String& out, bool strict) {
@@ -156,7 +158,7 @@ namespace detail {
 // 3 = space, replace with '+' in QUERY mode
 // 4 = percent-encode
 extern const unsigned char uriEscapeTable[];
-}  // namespace detail
+} // namespace detail
 
 template <class String>
 void uriEscape(StringPiece str, String& out, UriEscapeMode mode) {
@@ -228,6 +230,7 @@ void uriUnescape(StringPiece str, String& out, UriEscapeMode mode) {
         break;
       }
       // else fallthrough
+      FOLLY_FALLTHROUGH;
     default:
       ++p;
       break;
@@ -272,7 +275,7 @@ inline char delimFront(StringPiece s) {
  *
  * @param ignoreEmpty iff true, don't copy empty segments to output
  */
-template<class OutStringT, class DelimT, class OutputIterator>
+template <class OutStringT, class DelimT, class OutputIterator>
 void internalSplit(DelimT delim, StringPiece sp, OutputIterator out,
     bool ignoreEmpty) {
   assert(sp.empty() || sp.start() != nullptr);
@@ -314,7 +317,7 @@ void internalSplit(DelimT delim, StringPiece sp, OutputIterator out,
   }
 }
 
-template<class String> StringPiece prepareDelim(const String& s) {
+template <class String> StringPiece prepareDelim(const String& s) {
   return StringPiece(s);
 }
 inline char prepareDelim(char c) { return c; }
@@ -356,7 +359,7 @@ bool splitFixed(
 
 //////////////////////////////////////////////////////////////////////
 
-template<class Delim, class String, class OutputType>
+template <class Delim, class String, class OutputType>
 void split(const Delim& delimiter,
            const String& input,
            std::vector<OutputType>& out,
@@ -368,7 +371,7 @@ void split(const Delim& delimiter,
     ignoreEmpty);
 }
 
-template<class Delim, class String, class OutputType>
+template <class Delim, class String, class OutputType>
 void split(const Delim& delimiter,
            const String& input,
            fbvector<OutputType>& out,
@@ -380,8 +383,11 @@ void split(const Delim& delimiter,
     ignoreEmpty);
 }
 
-template<class OutputValueType, class Delim, class String,
-         class OutputIterator>
+template <
+    class OutputValueType,
+    class Delim,
+    class String,
+    class OutputIterator>
 void splitTo(const Delim& delimiter,
              const String& input,
              OutputIterator out,
@@ -471,7 +477,7 @@ internalJoin(Delim delimiter,
   internalJoinAppend(delimiter, begin, end, output);
 }
 
-}  // namespace detail
+} // namespace detail
 
 template <class Delim, class Iterator, class String>
 void join(const Delim& delimiter,
@@ -485,8 +491,11 @@ void join(const Delim& delimiter,
     output);
 }
 
-template <class String1, class String2>
-void backslashify(const String1& input, String2& output, bool hex_style) {
+template <class OutputString>
+void backslashify(
+    folly::StringPiece input,
+    OutputString& output,
+    bool hex_style) {
   static const char hexValues[] = "0123456789abcdef";
   output.clear();
   output.reserve(3 * input.size());
@@ -564,7 +573,7 @@ void humanify(const String1& input, String2& output) {
   }
 }
 
-template<class InputString, class OutputString>
+template <class InputString, class OutputString>
 bool hexlify(const InputString& input, OutputString& output,
              bool append_output) {
   if (!append_output) output.clear();
@@ -580,7 +589,7 @@ bool hexlify(const InputString& input, OutputString& output,
   return true;
 }
 
-template<class InputString, class OutputString>
+template <class InputString, class OutputString>
 bool unhexlify(const InputString& input, OutputString& output) {
   if (input.size() % 2 != 0) {
     return false;
@@ -607,7 +616,7 @@ namespace detail {
  */
 size_t hexDumpLine(const void* ptr, size_t offset, size_t size,
                    std::string& line);
-}  // namespace detail
+} // namespace detail
 
 template <class OutIt>
 void hexDump(const void* ptr, size_t size, OutIt out) {
@@ -619,4 +628,4 @@ void hexDump(const void* ptr, size_t size, OutIt out) {
   }
 }
 
-}  // namespace folly
+} // namespace folly

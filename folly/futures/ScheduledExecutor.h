@@ -16,10 +16,12 @@
 
 #pragma once
 
-#include <folly/Executor.h>
 #include <chrono>
 #include <memory>
 #include <stdexcept>
+
+#include <folly/Executor.h>
+#include <folly/portability/BitsFunctexcept.h>
 
 namespace folly {
   // An executor that supports timed scheduling. Like RxScheduler.
@@ -30,9 +32,9 @@ namespace folly {
      typedef std::chrono::microseconds Duration;
      typedef std::chrono::steady_clock::time_point TimePoint;
 
-     virtual ~ScheduledExecutor() = default;
+     ~ScheduledExecutor() override = default;
 
-     virtual void add(Func) override = 0;
+     void add(Func) override = 0;
 
      /// Alias for add() (for Rx consistency)
      void schedule(Func&& a) { add(std::move(a)); }
@@ -46,7 +48,7 @@ namespace folly {
      /// Schedule a Func to be executed at time t, or as soon afterward as
      /// possible. Expect millisecond resolution at best. Must be threadsafe.
      virtual void scheduleAt(Func&& /* a */, TimePoint const& /* t */) {
-       throw std::logic_error("unimplemented");
+       std::__throw_logic_error("unimplemented");
      }
 
      /// Get this executor's notion of time. Must be threadsafe.

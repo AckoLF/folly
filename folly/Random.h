@@ -17,10 +17,13 @@
 #pragma once
 #define FOLLY_RANDOM_H_
 
-#include <type_traits>
+#include <array>
+#include <cstdint>
 #include <random>
-#include <stdint.h>
+#include <type_traits>
+
 #include <folly/Portability.h>
+#include <folly/Traits.h>
 
 #if FOLLY_HAVE_EXTRANDOM_SFMT19937
 #include <ext/random>
@@ -40,7 +43,7 @@ namespace folly {
  * However, if you are worried about performance, you can memoize the TLS
  * lookups that get the per thread state by manually using this class:
  *
- * ThreadLocalPRNG rng = Random::threadLocalPRNG()
+ * ThreadLocalPRNG rng;
  * for (...) {
  *   Random::rand32(rng);
  * }

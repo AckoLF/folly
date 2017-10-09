@@ -22,6 +22,24 @@ namespace folly {
 
 template <class> class Promise;
 
+template <class T>
+class SemiFuture;
+
+template <typename T>
+struct isSemiFuture : std::false_type {
+  using Inner = typename Unit::Lift<T>::type;
+};
+
+template <typename T>
+struct isSemiFuture<SemiFuture<T>> : std::true_type {
+  typedef T Inner;
+};
+
+template <typename T>
+struct isSemiFuture<Future<T>> : std::true_type {
+  typedef T Inner;
+};
+
 template <typename T>
 struct isFuture : std::false_type {
   using Inner = typename Unit::Lift<T>::type;
@@ -38,6 +56,7 @@ struct isTry : std::false_type {};
 template <typename T>
 struct isTry<Try<T>> : std::true_type {};
 
+namespace futures {
 namespace detail {
 
 template <class> class Core;
@@ -45,7 +64,7 @@ template <class...> struct CollectAllVariadicContext;
 template <class...> struct CollectVariadicContext;
 template <class> struct CollectContext;
 
-template<typename F, typename... Args>
+template <typename F, typename... Args>
 using resultOf = decltype(std::declval<F>()(std::declval<Args>()...));
 
 template <typename...>
@@ -66,14 +85,13 @@ struct argResult {
   using Result = resultOf<F, Args...>;
 };
 
-template<typename F, typename... Args>
+template <typename F, typename... Args>
 struct callableWith {
-    template<typename T,
-             typename = detail::resultOf<T, Args...>>
+    template <typename T, typename = detail::resultOf<T, Args...>>
     static constexpr std::true_type
     check(std::nullptr_t) { return std::true_type{}; }
 
-    template<typename>
+    template <typename>
     static constexpr std::false_type
     check(...) { return std::false_type{}; }
 
@@ -81,7 +99,7 @@ struct callableWith {
     static constexpr bool value = type::value;
 };
 
-template<typename T, typename F>
+template <typename T, typename F>
 struct callableResult {
   typedef typename std::conditional<
     callableWith<F>::value,
@@ -119,26 +137,24 @@ struct Extract<R(Class::*)(Args...)> {
   typedef typename ArgType<Args...>::FirstArg FirstArg;
 };
 
-// gcc-4.8 refuses to capture a function reference in a lambda. This can be
-// mitigated by casting them to function pointer types first. The following
-// helper is used in Future.h to achieve that where necessary.
-// When compiling with gcc versions 4.9 and up, as well as clang, we do not
-// need to apply FunctionReferenceToPointer (i.e. T can be used instead of
-// FunctionReferenceToPointer<T>).
-// Applying FunctionReferenceToPointer first, the code works on all tested
-// compiler versions: gcc 4.8 and above, cland 3.5 and above.
-
-template <typename T>
-struct FunctionReferenceToPointer {
-  using type = T;
+template <typename R, typename... Args>
+struct Extract<R (*)(Args...)> {
+  typedef isFuture<R> ReturnsFuture;
+  typedef Future<typename ReturnsFuture::Inner> Return;
+  typedef typename ReturnsFuture::Inner RawReturn;
+  typedef typename ArgType<Args...>::FirstArg FirstArg;
 };
 
 template <typename R, typename... Args>
-struct FunctionReferenceToPointer<R (&)(Args...)> {
-  using type = R (*)(Args...);
+struct Extract<R (&)(Args...)> {
+  typedef isFuture<R> ReturnsFuture;
+  typedef Future<typename ReturnsFuture::Inner> Return;
+  typedef typename ReturnsFuture::Inner RawReturn;
+  typedef typename ArgType<Args...>::FirstArg FirstArg;
 };
 
-} // detail
+} // namespace detail
+} // namespace futures
 
 class Timekeeper;
 

@@ -77,8 +77,7 @@ class fbvector {
   //===========================================================================
   //---------------------------------------------------------------------------
   // implementation
-private:
-
+ private:
   typedef std::allocator_traits<Allocator> A;
 
   struct Impl : public Allocator {
@@ -192,8 +191,7 @@ private:
   //===========================================================================
   //---------------------------------------------------------------------------
   // types and constants
-public:
-
+ public:
   typedef T                                           value_type;
   typedef value_type&                                 reference;
   typedef const value_type&                           const_reference;
@@ -207,8 +205,7 @@ public:
   typedef std::reverse_iterator<iterator>             reverse_iterator;
   typedef std::reverse_iterator<const_iterator>       const_reverse_iterator;
 
-private:
-
+ private:
   typedef std::integral_constant<bool,
       IsTriviallyCopyable<T>::value &&
       sizeof(T) <= 16 // don't force large structures to be passed by value
@@ -227,8 +224,7 @@ private:
   //===========================================================================
   //---------------------------------------------------------------------------
   // allocator helpers
-private:
-
+ private:
   //---------------------------------------------------------------------------
   // allocate
 
@@ -332,8 +328,7 @@ private:
   //===========================================================================
   //---------------------------------------------------------------------------
   // algorithmic helpers
-private:
-
+ private:
   //---------------------------------------------------------------------------
   // destroy_range
 
@@ -582,8 +577,7 @@ private:
   //===========================================================================
   //---------------------------------------------------------------------------
   // relocation helpers
-private:
-
+ private:
   // Relocation is divided into three parts:
   //
   //  1: relocate_move
@@ -689,8 +683,7 @@ private:
   //===========================================================================
   //---------------------------------------------------------------------------
   // construct/copy/destroy
-public:
-
+ public:
   fbvector() = default;
 
   explicit fbvector(const Allocator& a) : impl_(a) {}
@@ -794,8 +787,7 @@ public:
     return impl_;
   }
 
-private:
-
+ private:
   // contract dispatch for iterator types fbvector(It first, It last)
   template <class ForwardIterator>
   fbvector(ForwardIterator first, ForwardIterator last,
@@ -868,8 +860,7 @@ private:
   //===========================================================================
   //---------------------------------------------------------------------------
   // iterators
-public:
-
+ public:
   iterator begin() noexcept {
     return impl_.b_;
   }
@@ -911,8 +902,7 @@ public:
   //===========================================================================
   //---------------------------------------------------------------------------
   // capacity
-public:
-
+ public:
   size_type size() const noexcept {
     return size_type(impl_.e_ - impl_.b_);
   }
@@ -1011,8 +1001,7 @@ public:
     }
   }
 
-private:
-
+ private:
   bool reserve_in_place(size_type n) {
     if (!usingStdAllocator::value || !usingJEMalloc()) return false;
 
@@ -1032,8 +1021,7 @@ private:
   //===========================================================================
   //---------------------------------------------------------------------------
   // element access
-public:
-
+ public:
   reference operator[](size_type n) {
     assert(n < size());
     return impl_.b_[n];
@@ -1072,8 +1060,7 @@ public:
   //===========================================================================
   //---------------------------------------------------------------------------
   // data access
-public:
-
+ public:
   T* data() noexcept {
     return impl_.b_;
   }
@@ -1084,8 +1071,7 @@ public:
   //===========================================================================
   //---------------------------------------------------------------------------
   // modifiers (common)
-public:
-
+ public:
   template <class... Args>
   void emplace_back(Args&&... args)  {
     if (impl_.e_ != impl_.z_) {
@@ -1133,8 +1119,7 @@ public:
     M_destroy_range_e(impl_.b_);
   }
 
-private:
-
+ private:
   // std::vector implements a similar function with a different growth
   //  strategy: empty() ? 1 : capacity() * 2.
   //
@@ -1172,8 +1157,7 @@ private:
   //===========================================================================
   //---------------------------------------------------------------------------
   // modifiers (erase)
-public:
-
+ public:
   iterator erase(const_iterator position) {
     return erase(position, position + 1);
   }
@@ -1207,8 +1191,7 @@ public:
   //===========================================================================
   //---------------------------------------------------------------------------
   // modifiers (insert)
-private: // we have the private section first because it defines some macros
-
+ private: // we have the private section first because it defines some macros
   bool isValid(const_iterator it) {
     return cbegin() <= it && it <= cend();
   }
@@ -1343,117 +1326,125 @@ private: // we have the private section first because it defines some macros
   //---------------------------------------------------------------------------
   // interface
 
-  #define FOLLY_FBVECTOR_INSERT_PRE(cpos, n)                                  \
-    if (n == 0) return (iterator)cpos;                                        \
-    bool at_end = cpos == cend();                                             \
-    bool fresh = insert_use_fresh(at_end, n);                                 \
-    if (!at_end) {                                                            \
-      if (!fresh) {
+  template <
+      typename IsInternalFunc,
+      typename InsertInternalFunc,
+      typename ConstructFunc,
+      typename DestroyFunc>
+  iterator do_real_insert(
+      const_iterator cpos,
+      size_type n,
+      IsInternalFunc&& isInternalFunc,
+      InsertInternalFunc&& insertInternalFunc,
+      ConstructFunc&& constructFunc,
+      DestroyFunc&& destroyFunc) {
+    if (n == 0) {
+      return iterator(cpos);
+    }
+    bool at_end = cpos == cend();
+    bool fresh = insert_use_fresh(at_end, n);
+    if (!at_end) {
+      if (!fresh && isInternalFunc()) {
+        // check for internal data (technically not required by the standard)
+        return insertInternalFunc();
+      }
+      assert(isValid(cpos));
+    }
+    T* position = const_cast<T*>(cpos);
+    size_type idx = size_type(std::distance(impl_.b_, position));
+    T* b;
+    size_type newCap; /* intentionally uninitialized */
 
-    // check for internal data (technically not required by the standard)
+    if (fresh) {
+      newCap = computeInsertCapacity(n);
+      b = M_allocate(newCap);
+    } else {
+      if (!at_end) {
+        make_window(position, n);
+      } else {
+        impl_.e_ += n;
+      }
+      b = impl_.b_;
+    }
 
-  #define FOLLY_FBVECTOR_INSERT_START(cpos, n)                                \
-      }                                                                       \
-      assert(isValid(cpos));                                                  \
-    }                                                                         \
-    T* position = const_cast<T*>(cpos);                                       \
-    size_type idx = size_type(std::distance(impl_.b_, position));             \
-    T* b;                                                                     \
-    size_type newCap; /* intentionally uninitialized */                       \
-                                                                              \
-    if (fresh) {                                                              \
-      newCap = computeInsertCapacity(n);                                      \
-      b = M_allocate(newCap);                                                 \
-    } else {                                                                  \
-      if (!at_end) {                                                          \
-        make_window(position, n);                                             \
-      } else {                                                                \
-        impl_.e_ += n;                                                        \
-      }                                                                       \
-      b = impl_.b_;                                                           \
-    }                                                                         \
-                                                                              \
-    T* start = b + idx;                                                       \
-                                                                              \
-    try {                                                                     \
+    T* start = b + idx;
+    try {
+      // construct the inserted elements
+      constructFunc(start);
+    } catch (...) {
+      if (fresh) {
+        M_deallocate(b, newCap);
+      } else {
+        if (!at_end) {
+          undo_window(position, n);
+        } else {
+          impl_.e_ -= n;
+        }
+      }
+      throw;
+    }
 
-    // construct the inserted elements
+    if (fresh) {
+      try {
+        wrap_frame(b, idx, n);
+      } catch (...) {
+        // delete the inserted elements (exception has been thrown)
+        destroyFunc(start);
+        M_deallocate(b, newCap);
+        throw;
+      }
+      if (impl_.b_) {
+        M_deallocate(impl_.b_, capacity());
+      }
+      impl_.set(b, size() + n, newCap);
+      return impl_.b_ + idx;
+    } else {
+      return position;
+    }
+  }
 
-  #define FOLLY_FBVECTOR_INSERT_TRY(cpos, n)                                  \
-    } catch (...) {                                                           \
-      if (fresh) {                                                            \
-        M_deallocate(b, newCap);                                              \
-      } else {                                                                \
-        if (!at_end) {                                                        \
-          undo_window(position, n);                                           \
-        } else {                                                              \
-          impl_.e_ -= n;                                                      \
-        }                                                                     \
-      }                                                                       \
-      throw;                                                                  \
-    }                                                                         \
-                                                                              \
-    if (fresh) {                                                              \
-      try {                                                                   \
-        wrap_frame(b, idx, n);                                                \
-      } catch (...) {                                                         \
-
-
-    // delete the inserted elements (exception has been thrown)
-
-  #define FOLLY_FBVECTOR_INSERT_END(cpos, n)                                  \
-        M_deallocate(b, newCap);                                              \
-        throw;                                                                \
-      }                                                                       \
-      if (impl_.b_) M_deallocate(impl_.b_, capacity());                       \
-      impl_.set(b, size() + n, newCap);                                       \
-      return impl_.b_ + idx;                                                  \
-    } else {                                                                  \
-      return position;                                                        \
-    }                                                                         \
-
-  //---------------------------------------------------------------------------
-  // insert functions
-public:
-
+ public:
   template <class... Args>
   iterator emplace(const_iterator cpos, Args&&... args) {
-    FOLLY_FBVECTOR_INSERT_PRE(cpos, 1)
-    FOLLY_FBVECTOR_INSERT_START(cpos, 1)
-      M_construct(start, std::forward<Args>(args)...);
-    FOLLY_FBVECTOR_INSERT_TRY(cpos, 1)
-      M_destroy(start);
-    FOLLY_FBVECTOR_INSERT_END(cpos, 1)
+    return do_real_insert(
+        cpos,
+        1,
+        [&] { return false; },
+        [&] { return iterator{}; },
+        [&](iterator start) {
+          M_construct(start, std::forward<Args>(args)...);
+        },
+        [&](iterator start) { M_destroy(start); });
   }
 
   iterator insert(const_iterator cpos, const T& value) {
-    FOLLY_FBVECTOR_INSERT_PRE(cpos, 1)
-      if (dataIsInternal(value)) return insert(cpos, T(value));
-    FOLLY_FBVECTOR_INSERT_START(cpos, 1)
-      M_construct(start, value);
-    FOLLY_FBVECTOR_INSERT_TRY(cpos, 1)
-      M_destroy(start);
-    FOLLY_FBVECTOR_INSERT_END(cpos, 1)
+    return do_real_insert(
+        cpos,
+        1,
+        [&] { return dataIsInternal(value); },
+        [&] { return insert(cpos, T(value)); },
+        [&](iterator start) { M_construct(start, value); },
+        [&](iterator start) { M_destroy(start); });
   }
 
   iterator insert(const_iterator cpos, T&& value) {
-    FOLLY_FBVECTOR_INSERT_PRE(cpos, 1)
-      if (dataIsInternal(value)) return insert(cpos, T(std::move(value)));
-    FOLLY_FBVECTOR_INSERT_START(cpos, 1)
-      M_construct(start, std::move(value));
-    FOLLY_FBVECTOR_INSERT_TRY(cpos, 1)
-      M_destroy(start);
-    FOLLY_FBVECTOR_INSERT_END(cpos, 1)
+    return do_real_insert(
+        cpos,
+        1,
+        [&] { return dataIsInternal(value); },
+        [&] { return insert(cpos, T(std::move(value))); },
+        [&](iterator start) { M_construct(start, std::move(value)); },
+        [&](iterator start) { M_destroy(start); });
   }
 
   iterator insert(const_iterator cpos, size_type n, VT value) {
-    FOLLY_FBVECTOR_INSERT_PRE(cpos, n)
-      if (dataIsInternalAndNotVT(value)) return insert(cpos, n, T(value));
-    FOLLY_FBVECTOR_INSERT_START(cpos, n)
-      D_uninitialized_fill_n_a(start, n, value);
-    FOLLY_FBVECTOR_INSERT_TRY(cpos, n)
-      D_destroy_range_a(start, start + n);
-    FOLLY_FBVECTOR_INSERT_END(cpos, n)
+    return do_real_insert(
+        cpos,
+        n,
+        [&] { return dataIsInternalAndNotVT(value); },
+        [&] { return insert(cpos, n, T(value)); },
+        [&](iterator start) { D_uninitialized_fill_n_a(start, n, value); },
+        [&](iterator start) { D_destroy_range_a(start, start + n); });
   }
 
   template <class It, class Category = typename
@@ -1468,18 +1459,18 @@ public:
 
   //---------------------------------------------------------------------------
   // insert dispatch for iterator types
-private:
-
+ private:
   template <class FIt>
   iterator insert(const_iterator cpos, FIt first, FIt last,
                   std::forward_iterator_tag) {
     size_type n = size_type(std::distance(first, last));
-    FOLLY_FBVECTOR_INSERT_PRE(cpos, n)
-    FOLLY_FBVECTOR_INSERT_START(cpos, n)
-      D_uninitialized_copy_a(start, first, last);
-    FOLLY_FBVECTOR_INSERT_TRY(cpos, n)
-      D_destroy_range_a(start, start + n);
-    FOLLY_FBVECTOR_INSERT_END(cpos, n)
+    return do_real_insert(
+        cpos,
+        n,
+        [&] { return false; },
+        [&] { return iterator{}; },
+        [&](iterator start) { D_uninitialized_copy_a(start, first, last); },
+        [&](iterator start) { D_destroy_range_a(start, start + n); });
   }
 
   template <class IIt>
@@ -1502,8 +1493,7 @@ private:
   //===========================================================================
   //---------------------------------------------------------------------------
   // lexicographical functions
-public:
-
+ public:
   bool operator==(const fbvector& other) const {
     return size() == other.size() && std::equal(begin(), end(), other.begin());
   }
@@ -1532,8 +1522,7 @@ public:
   //===========================================================================
   //---------------------------------------------------------------------------
   // friends
-private:
-
+ private:
   template <class _T, class _A>
   friend _T* relinquish(fbvector<_T, _A>&);
 
@@ -1635,7 +1624,7 @@ struct IndexableTraits<fbvector<T, A>>
   : public IndexableTraitsSeq<fbvector<T, A>> {
 };
 
-}  // namespace detail
+} // namespace detail
 
 template <class T, class A>
 void compactResize(fbvector<T, A>* v, size_t sz) {

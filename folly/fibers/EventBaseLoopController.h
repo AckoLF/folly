@@ -17,30 +17,25 @@
 
 #include <folly/fibers/FiberManagerInternal.h>
 #include <folly/fibers/LoopController.h>
-#include <folly/io/async/EventBase.h>
 #include <folly/io/async/VirtualEventBase.h>
 #include <atomic>
 #include <memory>
 
 namespace folly {
-class EventBase;
-}
-
-namespace folly {
 namespace fibers {
 
-template <typename EventBaseT>
-class EventBaseLoopControllerT : public LoopController {
+class EventBaseLoopController : public LoopController {
  public:
-  explicit EventBaseLoopControllerT();
-  ~EventBaseLoopControllerT();
+  explicit EventBaseLoopController();
+  ~EventBaseLoopController() override;
 
   /**
    * Attach EventBase after LoopController was created.
    */
-  void attachEventBase(EventBaseT& eventBase);
+  void attachEventBase(EventBase& eventBase);
+  void attachEventBase(VirtualEventBase& eventBase);
 
-  EventBaseT* getEventBase() {
+  VirtualEventBase* getEventBase() {
     return eventBase_;
   }
 
@@ -51,7 +46,7 @@ class EventBaseLoopControllerT : public LoopController {
  private:
   class ControllerCallback : public folly::EventBase::LoopCallback {
    public:
-    explicit ControllerCallback(EventBaseLoopControllerT& controller)
+    explicit ControllerCallback(EventBaseLoopController& controller)
         : controller_(controller) {}
 
     void runLoopCallback() noexcept override {
@@ -59,13 +54,13 @@ class EventBaseLoopControllerT : public LoopController {
     }
 
    private:
-    EventBaseLoopControllerT& controller_;
+    EventBaseLoopController& controller_;
   };
 
   class DestructionCallback : public folly::EventBase::LoopCallback {
    public:
     DestructionCallback() : alive_(new int(42)) {}
-    ~DestructionCallback() {
+    ~DestructionCallback() override {
       reset();
     }
 
@@ -92,7 +87,7 @@ class EventBaseLoopControllerT : public LoopController {
   };
 
   bool awaitingScheduling_{false};
-  EventBaseT* eventBase_{nullptr};
+  VirtualEventBase* eventBase_{nullptr};
   Executor::KeepAlive eventBaseKeepAlive_;
   ControllerCallback callback_;
   DestructionCallback destructionCallback_;
@@ -112,9 +107,7 @@ class EventBaseLoopControllerT : public LoopController {
 
   friend class FiberManager;
 };
-
-using EventBaseLoopController = EventBaseLoopControllerT<folly::EventBase>;
-}
-} // folly::fibers
+} // namespace fibers
+} // namespace folly
 
 #include "EventBaseLoopController-inl.h"

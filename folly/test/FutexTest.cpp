@@ -24,8 +24,8 @@
 
 #include <glog/logging.h>
 
-#include <folly/portability/Time.h>
 #include <folly/portability/GTest.h>
+#include <folly/portability/Time.h>
 
 using namespace folly::detail;
 using namespace folly::test;
@@ -34,13 +34,13 @@ using namespace std::chrono;
 
 typedef DeterministicSchedule DSched;
 
-template <template<typename> class Atom>
+template <template <typename> class Atom>
 void run_basic_thread(
     Futex<Atom>& f) {
   EXPECT_TRUE(f.futexWait(0));
 }
 
-template <template<typename> class Atom>
+template <template <typename> class Atom>
 void run_basic_tests() {
   Futex<Atom> f(0);
 
@@ -56,7 +56,7 @@ void run_basic_tests() {
   DSched::join(thr);
 }
 
-template <template<typename> class Atom, typename Clock, typename Duration>
+template <template <typename> class Atom, typename Clock, typename Duration>
 void liveClockWaitUntilTests() {
   Futex<Atom> f(0);
 
@@ -113,7 +113,7 @@ void deterministicAtomicWaitUntilTests() {
   EXPECT_TRUE(res == FutexResult::TIMEDOUT || res == FutexResult::INTERRUPTED);
 }
 
-template<template<typename> class Atom>
+template <template <typename> class Atom>
 void run_wait_until_tests() {
   liveClockWaitUntilTests<Atom, system_clock, system_clock::duration>();
   liveClockWaitUntilTests<Atom, steady_clock, steady_clock::duration>();
@@ -184,17 +184,19 @@ void run_steady_clock_test() {
 
 template <template <typename> class Atom>
 void run_wake_blocked_test() {
-  Futex<Atom> f(0);
-
-  auto thr = DSched::thread([&] { EXPECT_TRUE(f.futexWait(0)); });
-
-  // A sleep here guarantees to a large extent that 'thr' will execute
-  // futexWait before we wake it up, thus testing late futexWake.
-  std::this_thread::sleep_for(std::chrono::milliseconds(2));
-
-  f.store(1);
-  f.futexWake(1);
-  DSched::join(thr);
+  for (auto delay = std::chrono::milliseconds(1);; delay *= 2) {
+    bool success = false;
+    Futex<Atom> f(0);
+    auto thr = DSched::thread([&] { success = f.futexWait(0); });
+    /* sleep override */ std::this_thread::sleep_for(delay);
+    f.store(1);
+    f.futexWake(1);
+    DSched::join(thr);
+    LOG(INFO) << "delay=" << delay.count() << "_ms, success=" << success;
+    if (success) {
+      break;
+    }
+  }
 }
 
 TEST(Futex, clock_source) {

@@ -19,11 +19,13 @@
 #pragma once
 
 #include <stdint.h>
+
 #include <atomic>
 #include <thread>
 #include <type_traits>
+
 #include <folly/Likely.h>
-#include <folly/detail/CacheLocality.h>
+#include <folly/concurrency/CacheLocality.h>
 #include <folly/detail/Futex.h>
 #include <folly/portability/Asm.h>
 #include <folly/portability/SysResource.h>
@@ -234,10 +236,11 @@ struct SharedMutexToken {
   uint16_t slot_;
 };
 
-template <bool ReaderPriority,
-          typename Tag_ = void,
-          template <typename> class Atom = std::atomic,
-          bool BlockImmediately = false>
+template <
+    bool ReaderPriority,
+    typename Tag_ = void,
+    template <typename> class Atom = std::atomic,
+    bool BlockImmediately = false>
 class SharedMutexImpl {
  public:
   static constexpr bool kReaderPriority = ReaderPriority;
@@ -249,7 +252,7 @@ class SharedMutexImpl {
   class UpgradeHolder;
   class WriteHolder;
 
-  constexpr SharedMutexImpl() : state_(0) {}
+  constexpr SharedMutexImpl() noexcept : state_(0) {}
 
   SharedMutexImpl(const SharedMutexImpl&) = delete;
   SharedMutexImpl(SharedMutexImpl&&) = delete;
@@ -847,6 +850,7 @@ class SharedMutexImpl {
                             WaitContext& ctx) {
 #ifdef RUSAGE_THREAD
     struct rusage usage;
+    std::memset(&usage, 0, sizeof(usage));
     long before = -1;
 #endif
     for (uint32_t yieldCount = 0; yieldCount < kMaxSoftYieldCount;
@@ -989,7 +993,7 @@ class SharedMutexImpl {
           return;
         }
       }
-      asm_pause();
+      asm_volatile_pause();
       if (UNLIKELY(++spinCount >= kMaxSpinCount)) {
         applyDeferredReaders(state, ctx, slot);
         return;
@@ -1002,6 +1006,7 @@ class SharedMutexImpl {
 
 #ifdef RUSAGE_THREAD
     struct rusage usage;
+    std::memset(&usage, 0, sizeof(usage));
     long before = -1;
 #endif
     for (uint32_t yieldCount = 0; yieldCount < kMaxSoftYieldCount;
@@ -1133,10 +1138,15 @@ class SharedMutexImpl {
 
  public:
   class ReadHolder {
-   public:
     ReadHolder() : lock_(nullptr) {}
 
-    explicit ReadHolder(const SharedMutexImpl* lock) : ReadHolder(*lock) {}
+   public:
+    explicit ReadHolder(const SharedMutexImpl* lock)
+        : lock_(const_cast<SharedMutexImpl*>(lock)) {
+      if (lock_) {
+        lock_->lock_shared(token_);
+      }
+    }
 
     explicit ReadHolder(const SharedMutexImpl& lock)
         : lock_(const_cast<SharedMutexImpl*>(&lock)) {
@@ -1190,10 +1200,14 @@ class SharedMutexImpl {
   };
 
   class UpgradeHolder {
-   public:
     UpgradeHolder() : lock_(nullptr) {}
 
-    explicit UpgradeHolder(SharedMutexImpl* lock) : UpgradeHolder(*lock) {}
+   public:
+    explicit UpgradeHolder(SharedMutexImpl* lock) : lock_(lock) {
+      if (lock_) {
+        lock_->lock_upgrade();
+      }
+    }
 
     explicit UpgradeHolder(SharedMutexImpl& lock) : lock_(&lock) {
       lock_->lock_upgrade();
@@ -1236,10 +1250,14 @@ class SharedMutexImpl {
   };
 
   class WriteHolder {
-   public:
     WriteHolder() : lock_(nullptr) {}
 
-    explicit WriteHolder(SharedMutexImpl* lock) : WriteHolder(*lock) {}
+   public:
+    explicit WriteHolder(SharedMutexImpl* lock) : lock_(lock) {
+      if (lock_) {
+        lock_->lock();
+      }
+    }
 
     explicit WriteHolder(SharedMutexImpl& lock) : lock_(&lock) {
       lock_->lock();
@@ -1404,8 +1422,7 @@ bool SharedMutexImpl<ReaderPriority, Tag_, Atom, BlockImmediately>::
         // starting point for our empty-slot search, can change after
         // calling waitForZeroBits
         uint32_t bestSlot =
-            (uint32_t)folly::detail::AccessSpreader<Atom>::current(
-                kMaxDeferredReaders);
+            (uint32_t)folly::AccessSpreader<Atom>::current(kMaxDeferredReaders);
 
         // deferred readers are already enabled, or it is time to
         // enable them if we can find a slot

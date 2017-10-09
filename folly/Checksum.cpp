@@ -15,12 +15,13 @@
  */
 
 #include <folly/Checksum.h>
-#include <algorithm>
-#include <stdexcept>
 #include <boost/crc.hpp>
 #include <folly/CpuId.h>
+#include <folly/detail/ChecksumDetail.h>
+#include <algorithm>
+#include <stdexcept>
 
-#if FOLLY_X64 && (__SSE4_2__ || defined(__clang__) || __GNUC_PREREQ(4, 9))
+#if FOLLY_SSE_PREREQ(4, 2)
 #include <nmmintrin.h>
 #endif
 
@@ -28,40 +29,35 @@ namespace folly {
 
 namespace detail {
 
-#if FOLLY_X64 && (__SSE4_2__ || defined(__clang__) || __GNUC_PREREQ(4, 9))
+uint32_t
+crc32c_sw(const uint8_t* data, size_t nbytes, uint32_t startingChecksum);
+#if FOLLY_SSE_PREREQ(4, 2)
 
-// Fast SIMD implementation of CRC-32C for x86 with SSE 4.2
-FOLLY_TARGET_ATTRIBUTE("sse4.2")
-uint32_t crc32c_hw(const uint8_t *data, size_t nbytes,
-    uint32_t startingChecksum) {
+uint32_t
+crc32_sw(const uint8_t* data, size_t nbytes, uint32_t startingChecksum);
+
+// Fast SIMD implementation of CRC-32 for x86 with pclmul
+uint32_t
+crc32_hw(const uint8_t* data, size_t nbytes, uint32_t startingChecksum) {
   uint32_t sum = startingChecksum;
   size_t offset = 0;
 
-  // Process bytes one at a time until we reach an 8-byte boundary and can
-  // start doing aligned 64-bit reads.
-  static uintptr_t ALIGN_MASK = sizeof(uint64_t) - 1;
-  size_t mask = (size_t)((uintptr_t)data & ALIGN_MASK);
-  if (mask != 0) {
-    size_t limit = std::min(nbytes, sizeof(uint64_t) - mask);
-    while (offset < limit) {
-      sum = (uint32_t)_mm_crc32_u8(sum, data[offset]);
-      offset++;
-    }
+  // Process unaligned bytes
+  if ((uintptr_t)data & 15) {
+    size_t limit = std::min(nbytes, -(uintptr_t)data & 15);
+    sum = crc32_sw(data, limit, sum);
+    offset += limit;
+    nbytes -= limit;
   }
 
-  // Process 8 bytes at a time until we have fewer than 8 bytes left.
-  while (offset + sizeof(uint64_t) <= nbytes) {
-    const uint64_t* src = (const uint64_t*)(data + offset);
-    sum = uint32_t(_mm_crc32_u64(sum, *src));
-    offset += sizeof(uint64_t);
+  if (nbytes >= 16) {
+    sum = crc32_hw_aligned(sum, (const __m128i*)(data + offset), nbytes / 16);
+    offset += nbytes & ~15;
+    nbytes &= 15;
   }
 
-  // Process any bytes remaining after the last aligned 8-byte block.
-  while (offset < nbytes) {
-    sum = (uint32_t)_mm_crc32_u8(sum, data[offset]);
-    offset++;
-  }
-  return sum;
+  // Remaining unaligned bytes
+  return crc32_sw(data + offset, nbytes, sum);
 }
 
 bool crc32c_hw_supported() {
@@ -69,9 +65,14 @@ bool crc32c_hw_supported() {
   return id.sse42();
 }
 
+bool crc32_hw_supported() {
+  static folly::CpuId id;
+  return id.sse42();
+}
+
 #else
 
-uint32_t crc32c_hw(const uint8_t *data, size_t nbytes,
+uint32_t crc32_hw(const uint8_t *data, size_t nbytes,
     uint32_t startingChecksum) {
   throw std::runtime_error("crc32_hw is not implemented on this platform");
 }
@@ -80,11 +81,13 @@ bool crc32c_hw_supported() {
   return false;
 }
 
+bool crc32_hw_supported() {
+  return false;
+}
 #endif
 
-uint32_t crc32c_sw(const uint8_t *data, size_t nbytes,
-    uint32_t startingChecksum) {
-
+template <uint32_t CRC_POLYNOMIAL>
+uint32_t crc_sw(const uint8_t* data, size_t nbytes, uint32_t startingChecksum) {
   // Reverse the bits in the starting checksum so they'll be in the
   // right internal format for Boost's CRC engine.
   //     O(1)-time, branchless bit reversal algorithm from
@@ -100,14 +103,25 @@ uint32_t crc32c_sw(const uint8_t *data, size_t nbytes,
   startingChecksum = (startingChecksum >> 16) |
       (startingChecksum << 16);
 
-  static const uint32_t CRC32C_POLYNOMIAL = 0x1EDC6F41;
-  boost::crc_optimal<32, CRC32C_POLYNOMIAL, ~0U, 0, true, true> sum(
+  boost::crc_optimal<32, CRC_POLYNOMIAL, ~0U, 0, true, true> sum(
       startingChecksum);
   sum.process_bytes(data, nbytes);
   return sum.checksum();
 }
 
-} // folly::detail
+uint32_t
+crc32c_sw(const uint8_t* data, size_t nbytes, uint32_t startingChecksum) {
+  constexpr uint32_t CRC32C_POLYNOMIAL = 0x1EDC6F41;
+  return crc_sw<CRC32C_POLYNOMIAL>(data, nbytes, startingChecksum);
+}
+
+uint32_t
+crc32_sw(const uint8_t* data, size_t nbytes, uint32_t startingChecksum) {
+  constexpr uint32_t CRC32_POLYNOMIAL = 0x04C11DB7;
+  return crc_sw<CRC32_POLYNOMIAL>(data, nbytes, startingChecksum);
+}
+
+} // namespace detail
 
 uint32_t crc32c(const uint8_t *data, size_t nbytes,
     uint32_t startingChecksum) {
@@ -118,4 +132,17 @@ uint32_t crc32c(const uint8_t *data, size_t nbytes,
   }
 }
 
-} // folly
+uint32_t crc32(const uint8_t* data, size_t nbytes, uint32_t startingChecksum) {
+  if (detail::crc32_hw_supported()) {
+    return detail::crc32_hw(data, nbytes, startingChecksum);
+  } else {
+    return detail::crc32_sw(data, nbytes, startingChecksum);
+  }
+}
+
+uint32_t
+crc32_type(const uint8_t* data, size_t nbytes, uint32_t startingChecksum) {
+  return ~crc32(data, nbytes, startingChecksum);
+}
+
+} // namespace folly

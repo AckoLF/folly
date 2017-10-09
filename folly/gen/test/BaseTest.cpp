@@ -48,12 +48,12 @@ EXPECT_SAME(int&, typename ArgumentReference<int&>::type);
 EXPECT_SAME(const int&, typename ArgumentReference<const int&>::type);
 EXPECT_SAME(const int&, typename ArgumentReference<const int>::type);
 
-template<typename T>
+template <typename T>
 ostream& operator<<(ostream& os, const set<T>& values) {
   return os << from(values);
 }
 
-template<typename T>
+template <typename T>
 ostream& operator<<(ostream& os, const vector<T>& values) {
   os << "[";
   for (auto& value : values) {
@@ -71,7 +71,7 @@ auto multiply = [](int a, int b) { return a * b; };
 
 auto product = foldl(1, multiply);
 
-template<typename A, typename B>
+template <typename A, typename B>
 ostream& operator<<(ostream& os, const pair<A, B>& pair) {
   return os << "(" << pair.first << ", " << pair.second << ")";
 }
@@ -475,7 +475,35 @@ TEST(Gen, Until) {
       | as<vector<int>>();
     EXPECT_EQ(expected, actual);
   }
-  */
+    */
+}
+
+TEST(Gen, Visit) {
+  auto increment = [](int& i) { ++i; };
+  auto clone = map([](int i) { return i; });
+  { // apply()
+    auto expected = 10;
+    auto actual = seq(0) | clone | visit(increment) | take(4) | sum;
+    EXPECT_EQ(expected, actual);
+  }
+  { // foreach()
+    auto expected = 10;
+    auto actual = seq(0, 3) | clone | visit(increment) | sum;
+    EXPECT_EQ(expected, actual);
+  }
+  { // tee-like
+    std::vector<int> x2, x4;
+    std::vector<int> expected2{0, 1, 4, 9};
+    std::vector<int> expected4{0, 1, 16, 81};
+
+    auto tee = [](std::vector<int>& container) {
+      return visit([&](int value) { container.push_back(value); });
+    };
+    EXPECT_EQ(
+        98, seq(0, 3) | map(square) | tee(x2) | map(square) | tee(x4) | sum);
+    EXPECT_EQ(expected2, x2);
+    EXPECT_EQ(expected4, x4);
+  }
 }
 
 TEST(Gen, Composed) {
@@ -664,7 +692,7 @@ TEST(Gen, FromRValue) {
     // reference of a std::vector when it is used as the 'other' for an rvalue
     // constructor.  Use fbvector because we're sure its size will be zero in
     // this case.
-    fbvector<int> v({1,2,3,4});
+    fbvector<int> v({1, 2, 3, 4});
     auto q1 = from(v);
     EXPECT_EQ(v.size(), 4);  // ensure that the lvalue version was called!
     auto expected = 1 * 2 * 3 * 4;
@@ -676,11 +704,11 @@ TEST(Gen, FromRValue) {
   }
   {
     auto expected = 7;
-    auto q = from([] {return vector<int>({3,7,5}); }());
+    auto q = from([] { return vector<int>({3, 7, 5}); }());
     EXPECT_EQ(expected, q | max);
   }
   {
-    for (auto size: {5, 1024, 16384, 1<<20}) {
+    for (auto size : {5, 1024, 16384, 1 << 20}) {
       auto q1 = from(vector<int>(size, 2));
       auto q2 = from(vector<int>(size, 3));
       // If the rvalue specialization is broken/gone, then the compiler will
@@ -918,7 +946,7 @@ class TestIntSeq : public GenImpl<int, TestIntSeq> {
   TestIntSeq& operator=(const TestIntSeq&) = delete;
 };
 
-}  // namespace
+} // namespace
 
 TEST(Gen, NoGeneratorCopies) {
   EXPECT_EQ(15, TestIntSeq() | sum);
@@ -1221,6 +1249,31 @@ TEST(Gen, BatchMove) {
   EXPECT_EQ(expected, actual);
 }
 
+TEST(Gen, Window) {
+  auto expected = seq(0, 10) | as<std::vector>();
+  for (size_t windowSize = 1; windowSize <= 20; ++windowSize) {
+    // no early stop
+    auto actual = seq(0, 10) |
+        mapped([](int i) { return std::unique_ptr<int>(new int(i)); }) |
+        window(4) | dereference | as<std::vector>();
+    EXPECT_EQ(expected, actual) << windowSize;
+  }
+  for (size_t windowSize = 1; windowSize <= 20; ++windowSize) {
+    // pre-window take
+    auto actual = seq(0) |
+        mapped([](int i) { return std::unique_ptr<int>(new int(i)); }) |
+        take(11) | window(4) | dereference | as<std::vector>();
+    EXPECT_EQ(expected, actual) << windowSize;
+  }
+  for (size_t windowSize = 1; windowSize <= 20; ++windowSize) {
+    // post-window take
+    auto actual = seq(0) |
+        mapped([](int i) { return std::unique_ptr<int>(new int(i)); }) |
+        window(4) | take(11) | dereference | as<std::vector>();
+    EXPECT_EQ(expected, actual) << windowSize;
+  }
+}
+
 TEST(Gen, Just) {
   {
     int x = 3;
@@ -1274,14 +1327,14 @@ TEST(Gen, Unwrap) {
   EXPECT_EQ(4, o | unwrap);
   EXPECT_THROW(e | unwrap, OptionalEmptyException);
 
-  auto oup = folly::make_optional(folly::make_unique<int>(5));
+  auto oup = folly::make_optional(std::make_unique<int>(5));
   // optional has a value, and that value is non-null
   EXPECT_TRUE(bool(oup | unwrap));
   EXPECT_EQ(5, *(oup | unwrap));
   EXPECT_TRUE(oup.hasValue()); // still has a pointer (null or not)
   EXPECT_TRUE(bool(oup.value())); // that value isn't null
 
-  auto moved1 = std::move(oup) | unwrapOr(folly::make_unique<int>(6));
+  auto moved1 = std::move(oup) | unwrapOr(std::make_unique<int>(6));
   // oup still has a value, but now it's now nullptr since the pointer was moved
   // into moved1
   EXPECT_TRUE(oup.hasValue());
@@ -1289,12 +1342,12 @@ TEST(Gen, Unwrap) {
   EXPECT_TRUE(bool(moved1));
   EXPECT_EQ(5, *moved1);
 
-  auto moved2 = std::move(oup) | unwrapOr(folly::make_unique<int>(7));
+  auto moved2 = std::move(oup) | unwrapOr(std::make_unique<int>(7));
   // oup's still-valid nullptr value wins here, the pointer to 7 doesn't apply
   EXPECT_FALSE(moved2);
 
   oup.clear();
-  auto moved3 = std::move(oup) | unwrapOr(folly::make_unique<int>(8));
+  auto moved3 = std::move(oup) | unwrapOr(std::make_unique<int>(8));
   // oup is empty now, so the unwrapOr comes into play.
   EXPECT_TRUE(bool(moved3));
   EXPECT_EQ(8, *moved3);
@@ -1332,7 +1385,7 @@ TEST(Gen, Unwrap) {
 
   {
     auto opt = folly::make_optional(std::make_shared<int>(8));
-    auto fallback = unwrapOr(folly::make_unique<int>(9));
+    auto fallback = unwrapOr(std::make_unique<int>(9));
     // fallback must be std::move'd to be used
     EXPECT_EQ(8, *(opt | std::move(fallback)));
     EXPECT_TRUE(bool(opt.value())); // shared_ptr copied out, not moved

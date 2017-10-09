@@ -16,19 +16,54 @@
 
 #include <folly/String.h>
 
-#include <folly/Format.h>
-#include <folly/ScopeGuard.h>
-
+#include <cctype>
 #include <cerrno>
 #include <cstdarg>
 #include <cstring>
-#include <stdexcept>
 #include <iterator>
-#include <cctype>
-#include <string.h>
+#include <stdexcept>
+
 #include <glog/logging.h>
 
+#include <folly/ScopeGuard.h>
+
 namespace folly {
+
+static inline bool is_oddspace(char c) {
+  return c == '\n' || c == '\t' || c == '\r';
+}
+
+StringPiece ltrimWhitespace(StringPiece sp) {
+  // Spaces other than ' ' characters are less common but should be
+  // checked.  This configuration where we loop on the ' '
+  // separately from oddspaces was empirically fastest.
+
+loop:
+  for (; !sp.empty() && sp.front() == ' '; sp.pop_front()) {
+  }
+  if (!sp.empty() && is_oddspace(sp.front())) {
+    sp.pop_front();
+    goto loop;
+  }
+
+  return sp;
+}
+
+StringPiece rtrimWhitespace(StringPiece sp) {
+  // Spaces other than ' ' characters are less common but should be
+  // checked.  This configuration where we loop on the ' '
+  // separately from oddspaces was empirically fastest.
+
+loop:
+  for (; !sp.empty() && sp.back() == ' '; sp.pop_back()) {
+  }
+  if (!sp.empty() && is_oddspace(sp.back())) {
+    sp.pop_back();
+    goto loop;
+  }
+
+  return sp;
+}
 
 namespace {
 
@@ -83,7 +118,7 @@ void stringAppendfImpl(std::string& output, const char* format, va_list args) {
   output.append(heap_buffer.get(), size_t(final_bytes_used));
 }
 
-} // anon namespace
+} // namespace
 
 std::string stringPrintf(const char* format, ...) {
   va_list ap;
@@ -239,7 +274,7 @@ const PrettySuffix* const kPrettySuffixes[PRETTY_NUM_TYPES] = {
   kPrettySISuffixes,
 };
 
-}  // namespace
+} // namespace
 
 std::string prettyPrint(double val, PrettyType type, bool addSpace) {
   char buf[100];
@@ -454,7 +489,7 @@ void toLowerAscii64(uint64_t& c) {
   c += rotated;
 }
 
-} // anon namespace
+} // namespace
 
 void toLowerAscii(char* str, size_t length) {
   static const size_t kAlignMask64 = 7;
@@ -507,6 +542,7 @@ namespace detail {
 
 size_t hexDumpLine(const void* ptr, size_t offset, size_t size,
                    std::string& line) {
+  static char hexValues[] = "0123456789abcdef";
   // Line layout:
   // 8: address
   // 1: space
@@ -520,13 +556,24 @@ size_t hexDumpLine(const void* ptr, size_t offset, size_t size,
   line.reserve(78);
   const uint8_t* p = reinterpret_cast<const uint8_t*>(ptr) + offset;
   size_t n = std::min(size - offset, size_t(16));
-  format("{:08x} ", offset).appendTo(line);
+  line.push_back(hexValues[(offset >> 28) & 0xf]);
+  line.push_back(hexValues[(offset >> 24) & 0xf]);
+  line.push_back(hexValues[(offset >> 20) & 0xf]);
+  line.push_back(hexValues[(offset >> 16) & 0xf]);
+  line.push_back(hexValues[(offset >> 12) & 0xf]);
+  line.push_back(hexValues[(offset >> 8) & 0xf]);
+  line.push_back(hexValues[(offset >> 4) & 0xf]);
+  line.push_back(hexValues[offset & 0xf]);
+  line.push_back(' ');
 
   for (size_t i = 0; i < n; i++) {
     if (i == 8) {
       line.push_back(' ');
     }
-    format(" {:02x}", p[i]).appendTo(line);
+
+    line.push_back(' ');
+    line.push_back(hexValues[(p[i] >> 4) & 0xf]);
+    line.push_back(hexValues[p[i] & 0xf]);
   }
 
   // 3 spaces for each byte we're not printing, one separating the halves
@@ -591,7 +638,7 @@ std::string stripLeftMargin(std::string s) {
   return join("\n", piecer);
 }
 
-}   // namespace folly
+} // namespace folly
 
 #ifdef FOLLY_DEFINED_DMGL
 # undef FOLLY_DEFINED_DMGL

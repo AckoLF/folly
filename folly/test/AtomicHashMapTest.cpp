@@ -16,10 +16,11 @@
 
 #include <folly/AtomicHashMap.h>
 
-#include <glog/logging.h>
-#include <thread>
 #include <atomic>
 #include <memory>
+#include <thread>
+
+#include <glog/logging.h>
 
 #include <folly/Benchmark.h>
 #include <folly/Conv.h>
@@ -261,13 +262,13 @@ TEST(Ahm, iterator) {
 }
 
 class Counters {
-private:
+ private:
   // Note: Unfortunately can't currently put a std::atomic<int64_t> in
   // the value in ahm since it doesn't support types that are both non-copy
   // and non-move constructible yet.
   AtomicHashMap<int64_t,int64_t> ahm;
 
-public:
+ public:
   explicit Counters(size_t numCounters) : ahm(numCounters) {}
 
   void increment(int64_t obj_id) {
@@ -403,7 +404,7 @@ namespace {
 inline KeyT randomizeKey(int key) {
   // We deterministically randomize the key to more accurately simulate
   // real-world usage, and to avoid pathalogical performance patterns (e.g.
-  // those related to __gnu_cxx::hash<int64_t>()(1) == 1).
+  // those related to std::hash<int64_t>()(1) == 1).
   //
   // Use a hash function we don't normally use for ints to avoid interactions.
   return folly::hash::jenkins_rev_mix32(key);

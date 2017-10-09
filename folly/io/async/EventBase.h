@@ -17,11 +17,11 @@
 #pragma once
 
 #include <atomic>
+#include <cerrno>
+#include <cmath>
 #include <cstdlib>
-#include <errno.h>
 #include <functional>
 #include <list>
-#include <math.h>
 #include <memory>
 #include <mutex>
 #include <queue>
@@ -33,7 +33,9 @@
 
 #include <boost/intrusive/list.hpp>
 #include <boost/utility.hpp>
+#include <glog/logging.h>
 
+#include <folly/CallOnce.h>
 #include <folly/Executor.h>
 #include <folly/Function.h>
 #include <folly/Portability.h>
@@ -44,9 +46,8 @@
 #include <folly/io/async/HHWheelTimer.h>
 #include <folly/io/async/Request.h>
 #include <folly/io/async/TimeoutManager.h>
-#include <glog/logging.h>
+#include <folly/portability/Event.h>
 
-#include <event.h>  // libevent
 
 namespace folly {
 
@@ -126,7 +127,6 @@ class EventBase : private boost::noncopyable,
                   public DrivableExecutor {
  public:
   using Func = folly::Function<void()>;
-  using FuncRef = folly::FunctionRef<void()>;
 
   /**
    * A callback interface to use with runInLoop()
@@ -220,7 +220,7 @@ class EventBase : private boost::noncopyable,
    *                              observer, max latency and avg loop time.
    */
   explicit EventBase(event_base* evb, bool enableTimeMeasurement = true);
-  ~EventBase();
+  ~EventBase() override;
 
   /**
    * Runs the event loop.
@@ -416,7 +416,7 @@ class EventBase : private boost::noncopyable,
    * Like runInEventBaseThread, but the caller waits for the callback to be
    * executed.
    */
-  bool runInEventBaseThreadAndWait(FuncRef fn);
+  bool runInEventBaseThreadAndWait(Func fn);
 
   /*
    * Like runInEventBaseThreadAndWait, except if the caller is already in the
@@ -429,7 +429,7 @@ class EventBase : private boost::noncopyable,
    * Like runInEventBaseThreadAndWait, except if the caller is already in the
    * event base thread, the functor is simply run inline.
    */
-  bool runImmediatelyOrRunInEventBaseThreadAndWait(FuncRef fn);
+  bool runImmediatelyOrRunInEventBaseThreadAndWait(Func fn);
 
   /**
    * Set the maximum desired latency in us and provide a callback which will be
@@ -491,6 +491,18 @@ class EventBase : private boost::noncopyable,
         std::this_thread::get_id();
   }
 
+  /**
+   * Equivalent to CHECK(isInEventBaseThread()) (and assert/DCHECK for
+   * dcheckIsInEventBaseThread), but it prints more information on
+   * failure.
+   */
+  void checkIsInEventBaseThread() const;
+  void dcheckIsInEventBaseThread() const {
+    if (kIsDebug) {
+      checkIsInEventBaseThread();
+    }
+  }
+
   HHWheelTimer& timer() {
     if (!wheelTimer_) {
       wheelTimer_ = HHWheelTimer::newTimer(this);
@@ -514,7 +526,7 @@ class EventBase : private boost::noncopyable,
    * first handler fired within that cycle.
    *
    */
-  void bumpHandlingTime() override final;
+  void bumpHandlingTime() final;
 
   class SmoothLoopTime {
    public:
@@ -591,8 +603,6 @@ class EventBase : private boost::noncopyable,
 
   /// Implements the DrivableExecutor interface
   void drive() override {
-    // We can't use loopKeepAlive() here since LoopKeepAlive token can only be
-    // released inside a loop.
     ++loopKeepAliveCount_;
     SCOPE_EXIT {
       --loopKeepAliveCount_;
@@ -602,36 +612,50 @@ class EventBase : private boost::noncopyable,
 
   /// Returns you a handle which make loop() behave like loopForever() until
   /// destroyed. loop() will return to its original behavior only when all
-  /// loop keep-alives are released. Loop holder is safe to release only from
-  /// EventBase thread.
+  /// loop keep-alives are released.
   KeepAlive getKeepAliveToken() override {
-    if (inRunningEventBaseThread()) {
-      loopKeepAliveCount_++;
-    } else {
-      loopKeepAliveCountAtomic_.fetch_add(1, std::memory_order_relaxed);
-    }
+    keepAliveAcquire();
     return makeKeepAlive();
   }
 
   // TimeoutManager
   void attachTimeoutManager(
       AsyncTimeout* obj,
-      TimeoutManager::InternalEnum internal) override final;
+      TimeoutManager::InternalEnum internal) final;
 
-  void detachTimeoutManager(AsyncTimeout* obj) override final;
+  void detachTimeoutManager(AsyncTimeout* obj) final;
 
   bool scheduleTimeout(AsyncTimeout* obj, TimeoutManager::timeout_type timeout)
-      override final;
+      final;
 
-  void cancelTimeout(AsyncTimeout* obj) override final;
+  void cancelTimeout(AsyncTimeout* obj) final;
 
-  bool isInTimeoutManagerThread() override final {
+  bool isInTimeoutManagerThread() final {
     return isInEventBaseThread();
   }
 
+  // Returns a VirtualEventBase attached to this EventBase. Can be used to
+  // pass to APIs which expect VirtualEventBase. This VirtualEventBase will be
+  // destroyed together with the EventBase.
+  //
+  // Any number of VirtualEventBases instances may be independently constructed,
+  // which are backed by this EventBase. This method should be only used if you
+  // don't need to manage the life time of the VirtualEventBase used.
+  folly::VirtualEventBase& getVirtualEventBase();
+
  protected:
+  void keepAliveAcquire() override {
+    if (inRunningEventBaseThread()) {
+      loopKeepAliveCount_++;
+    } else {
+      loopKeepAliveCountAtomic_.fetch_add(1, std::memory_order_relaxed);
+    }
+  }
+
   void keepAliveRelease() override {
-    DCHECK(isInEventBaseThread());
+    if (!inRunningEventBaseThread()) {
+      return add([=] { keepAliveRelease(); });
+    }
     loopKeepAliveCount_--;
   }
 
@@ -733,9 +757,11 @@ class EventBase : private boost::noncopyable,
   // see EventBaseLocal
   friend class detail::EventBaseLocalBase;
   template <typename T> friend class EventBaseLocal;
-  std::mutex localStorageMutex_;
   std::unordered_map<uint64_t, std::shared_ptr<void>> localStorage_;
   std::unordered_set<detail::EventBaseLocalBaseBase*> localStorageToDtor_;
+
+  folly::once_flag virtualEventBaseInitFlag_;
+  std::unique_ptr<VirtualEventBase> virtualEventBase_;
 };
 
 template <typename T>
@@ -755,4 +781,4 @@ bool EventBase::runImmediatelyOrRunInEventBaseThreadAndWait(
   return runImmediatelyOrRunInEventBaseThreadAndWait([=] { fn(arg); });
 }
 
-} // folly
+} // namespace folly

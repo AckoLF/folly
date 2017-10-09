@@ -19,16 +19,23 @@
 
 #pragma once
 
+#include <folly/portability/Config.h>
+
 /**
  * Define various MALLOCX_* macros normally provided by jemalloc.  We define
  * them so that we don't have to include jemalloc.h, in case the program is
  * built without jemalloc support.
  */
-#ifndef MALLOCX_LG_ALIGN
-#define MALLOCX_LG_ALIGN(la) (la)
-#endif
-#ifndef MALLOCX_ZERO
-#define MALLOCX_ZERO (static_cast<int>(0x40))
+#if defined(USE_JEMALLOC) || defined(FOLLY_USE_JEMALLOC)
+// We have JEMalloc, so use it.
+# include <jemalloc/jemalloc.h>
+#else
+# ifndef MALLOCX_LG_ALIGN
+#  define MALLOCX_LG_ALIGN(la) (la)
+# endif
+# ifndef MALLOCX_ZERO
+#  define MALLOCX_ZERO (static_cast<int>(0x40))
+# endif
 #endif
 
 // If using fbstring from libstdc++ (see comment in FBString.h), then
@@ -38,7 +45,7 @@
 // includes and uses fbstring.
 #if defined(_GLIBCXX_USE_FB) && !defined(_LIBSTDCXX_FBSTRING)
 
-#include <folly/detail/Malloc.h>
+#include <folly/detail/MallocImpl.h>
 #include <folly/portability/BitsFunctexcept.h>
 
 #include <string>
@@ -60,7 +67,7 @@ namespace folly {
 
 /**
  * Declare *allocx() and mallctl*() as weak symbols. These will be provided by
- * jemalloc if we are using jemalloc, or will be NULL if we are using another
+ * jemalloc if we are using jemalloc, or will be nullptr if we are using another
  * malloc implementation.
  */
 extern "C" void* mallocx(size_t, int)
@@ -91,7 +98,7 @@ __attribute__((__weak__));
 
 #else // !defined(_LIBSTDCXX_FBSTRING)
 
-#include <folly/detail/Malloc.h> /* nolint */
+#include <folly/detail/MallocImpl.h> /* nolint */
 #include <folly/portability/BitsFunctexcept.h> /* nolint */
 
 #endif
@@ -141,9 +148,9 @@ namespace folly {
  * Determine if we are using jemalloc or not.
  */
 FOLLY_MALLOC_NOINLINE inline bool usingJEMalloc() noexcept {
-  // Checking for rallocx != NULL is not sufficient; we may be in a dlopen()ed
-  // module that depends on libjemalloc, so rallocx is resolved, but the main
-  // program might be using a different memory allocator.
+  // Checking for rallocx != nullptr is not sufficient; we may be in a
+  // dlopen()ed module that depends on libjemalloc, so rallocx is resolved, but
+  // the main program might be using a different memory allocator.
   // How do we determine that we're using jemalloc? In the hackiest
   // way possible. We allocate memory using malloc() and see if the
   // per-thread counter of allocated memory increases. This makes me
@@ -176,14 +183,14 @@ FOLLY_MALLOC_NOINLINE inline bool usingJEMalloc() noexcept {
 
     uint64_t origAllocated = *counter;
 
-    // Static because otherwise clever compilers will find out that
-    // the ptr is not used and does not escape the scope, so they will
-    // just optimize away the malloc.
-    static const void* ptr = malloc(1);
+    const void* ptr = malloc(1);
     if (!ptr) {
       // wtf, failing to allocate 1 byte
       return false;
     }
+
+    /* Avoid optimizing away the malloc.  */
+    asm volatile("" ::"m"(ptr) : "memory");
 
     return (origAllocated != *counter);
   }();
@@ -237,12 +244,10 @@ inline void* checkedRealloc(void* ptr, size_t size) {
  * currentSize bytes are used. The problem with using realloc is that
  * if currentSize is relatively small _and_ if realloc decides it
  * needs to move the memory chunk to a new buffer, then realloc ends
- * up copying data that is not used. It's impossible to hook into
- * GNU's malloc to figure whether expansion will occur in-place or as
- * a malloc-copy-free troika. (If an expand_in_place primitive would
- * be available, smartRealloc would use it.) As things stand, this
- * routine just tries to call realloc() (thus benefitting of potential
- * copy-free coalescing) unless there's too much slack memory.
+ * up copying data that is not used. It's generally not a win to try
+ * to hook in to realloc() behavior to avoid copies - at least in
+ * jemalloc, realloc() almost always ends up doing a copy, because
+ * there is little fragmentation / slack space to take advantage of.
  */
 FOLLY_MALLOC_CHECKED_MALLOC FOLLY_MALLOC_NOINLINE inline void* smartRealloc(
     void* p,
@@ -253,28 +258,6 @@ FOLLY_MALLOC_CHECKED_MALLOC FOLLY_MALLOC_NOINLINE inline void* smartRealloc(
   assert(currentSize <= currentCapacity &&
          currentCapacity < newCapacity);
 
-  if (usingJEMalloc()) {
-    // using jemalloc's API. Don't forget that jemalloc can never grow
-    // in place blocks smaller than 4096 bytes.
-    //
-    // NB: newCapacity may not be precisely equal to a jemalloc size class,
-    // i.e. newCapacity is not guaranteed to be the result of a
-    // goodMallocSize() call, therefore xallocx() may return more than
-    // newCapacity bytes of space.  Use >= rather than == to check whether
-    // xallocx() successfully expanded in place.
-    if (currentCapacity >= jemallocMinInPlaceExpandable &&
-        xallocx(p, newCapacity, 0, 0) >= newCapacity) {
-      // Managed to expand in place
-      return p;
-    }
-    // Cannot expand; must move
-    auto const result = checkedMalloc(newCapacity);
-    std::memcpy(result, p, currentSize);
-    free(p);
-    return result;
-  }
-
-  // No jemalloc no honey
   auto const slack = currentCapacity - currentSize;
   if (slack * 2 > currentSize) {
     // Too much slack, malloc-copy-free cycle:
@@ -291,6 +274,6 @@ FOLLY_MALLOC_CHECKED_MALLOC FOLLY_MALLOC_NOINLINE inline void* smartRealloc(
 _GLIBCXX_END_NAMESPACE_VERSION
 #endif
 
-} // folly
+} // namespace folly
 
 #endif // !defined(_GLIBCXX_USE_FB) || defined(_LIBSTDCXX_FBSTRING)

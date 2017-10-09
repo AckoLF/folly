@@ -35,7 +35,7 @@ struct less_invert {
   }
 };
 
-template<class Container>
+template <class Container>
 void check_invariant(Container& c) {
   auto it = c.begin();
   auto end = c.end();
@@ -49,7 +49,7 @@ void check_invariant(Container& c) {
 }
 
 struct OneAtATimePolicy {
-  template<class Container>
+  template <class Container>
   void increase_capacity(Container& c) {
     if (c.size() == c.capacity()) {
       c.reserve(c.size() + 1);
@@ -142,6 +142,21 @@ TEST(SortedVectorTypes, SimpleSetTest) {
   EXPECT_TRUE(s != cpy);
   EXPECT_TRUE(s != cpy2);
   EXPECT_TRUE(cpy2 == cpy);
+}
+
+TEST(SortedVectorTypes, BadHints) {
+  for (int toInsert = -1; toInsert <= 7; ++toInsert) {
+    for (int hintPos = 0; hintPos <= 4; ++hintPos) {
+      sorted_vector_set<int> s;
+      for (int i = 0; i <= 3; ++i) {
+        s.insert(i * 2);
+      }
+      s.insert(s.begin() + hintPos, toInsert);
+      size_t expectedSize = (toInsert % 2) == 0 ? 4 : 5;
+      EXPECT_EQ(s.size(), expectedSize);
+      check_invariant(s);
+    }
+  }
 }
 
 TEST(SortedVectorTypes, SimpleMapTest) {
@@ -386,6 +401,23 @@ TEST(SortedVectorTypes, TestSetBulkInsertionSortMerge) {
   EXPECT_THAT(
       extractValues(vset),
       testing::ElementsAreArray({1, 2, 4, 5, 6, 7, 8, 10}));
+}
+
+TEST(SortedVectorTypes, TestSetBulkInsertionMiddleValuesEqualDuplication) {
+  auto s = makeVectorOfWrappers<CountCopyCtor, int>({4, 6, 8});
+
+  sorted_vector_set<CountCopyCtor> vset(s.begin(), s.end());
+  check_invariant(vset);
+
+  s = makeVectorOfWrappers<CountCopyCtor, int>({8, 10, 12});
+
+  vset.insert(s.begin(), s.end());
+  check_invariant(vset);
+  EXPECT_EQ(vset.rbegin()->count_, 1);
+
+  EXPECT_THAT(
+      extractValues(vset),
+      testing::ElementsAreArray({4, 6, 8, 10, 12}));
 }
 
 TEST(SortedVectorTypes, TestSetBulkInsertionSortMergeDups) {

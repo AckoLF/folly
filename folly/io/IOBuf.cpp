@@ -20,18 +20,18 @@
 
 #include <folly/io/IOBuf.h>
 
+#include <cassert>
+#include <cstdint>
+#include <cstdlib>
+#include <stdexcept>
+
 #include <folly/Conv.h>
 #include <folly/Likely.h>
 #include <folly/Malloc.h>
 #include <folly/Memory.h>
 #include <folly/ScopeGuard.h>
-#include <folly/SpookyHashV2.h>
+#include <folly/hash/SpookyHashV2.h>
 #include <folly/io/Cursor.h>
-
-#include <stdexcept>
-#include <assert.h>
-#include <stdint.h>
-#include <stdlib.h>
 
 using std::unique_ptr;
 
@@ -79,14 +79,12 @@ void takeOwnershipError(bool freeOnError, void* buf,
   }
 }
 
-} // unnamed namespace
+} // namespace
 
 namespace folly {
 
 struct IOBuf::HeapPrefix {
-  HeapPrefix(uint16_t flg)
-    : magic(kHeapMagic),
-      flags(flg) {}
+  explicit HeapPrefix(uint16_t flg) : magic(kHeapMagic), flags(flg) {}
   ~HeapPrefix() {
     // Reset magic to 0 on destruction.  This is solely for debugging purposes
     // to help catch bugs where someone tries to use HeapStorage after it has
@@ -114,7 +112,7 @@ struct IOBuf::HeapFullStorage {
 
   HeapStorage hs;
   SharedInfo shared;
-  std::max_align_t align;
+  folly::max_align_t align;
 };
 
 IOBuf::SharedInfo::SharedInfo()
@@ -136,7 +134,7 @@ IOBuf::SharedInfo::SharedInfo(FreeFunction fn, void* arg)
 void* IOBuf::operator new(size_t size) {
   size_t fullSize = offsetof(HeapStorage, buf) + size;
   auto* storage = static_cast<HeapStorage*>(malloc(fullSize));
-  // operator new is not allowed to return NULL
+  // operator new is not allowed to return nullptr
   if (UNLIKELY(storage == nullptr)) {
     throw std::bad_alloc();
   }
@@ -258,7 +256,7 @@ unique_ptr<IOBuf> IOBuf::createCombined(uint64_t capacity) {
 }
 
 unique_ptr<IOBuf> IOBuf::createSeparate(uint64_t capacity) {
-  return make_unique<IOBuf>(CREATE, capacity);
+  return std::make_unique<IOBuf>(CREATE, capacity);
 }
 
 unique_ptr<IOBuf> IOBuf::createChain(
@@ -309,9 +307,9 @@ unique_ptr<IOBuf> IOBuf::takeOwnership(void* buf, uint64_t capacity,
     //
     // Note that we always pass freeOnError as false to the constructor.
     // If the constructor throws we'll handle it below.  (We have to handle
-    // allocation failures from make_unique too.)
-    return make_unique<IOBuf>(TAKE_OWNERSHIP, buf, capacity, length,
-                              freeFn, userData, false);
+    // allocation failures from std::make_unique too.)
+    return std::make_unique<IOBuf>(
+        TAKE_OWNERSHIP, buf, capacity, length, freeFn, userData, false);
   } catch (...) {
     takeOwnershipError(freeOnError, buf, freeFn, userData);
     throw;
@@ -332,7 +330,7 @@ IOBuf::IOBuf(WrapBufferOp op, ByteRange br)
 }
 
 unique_ptr<IOBuf> IOBuf::wrapBuffer(const void* buf, uint64_t capacity) {
-  return make_unique<IOBuf>(WRAP_BUFFER, buf, capacity);
+  return std::make_unique<IOBuf>(WRAP_BUFFER, buf, capacity);
 }
 
 IOBuf IOBuf::wrapBufferAsValue(const void* buf, uint64_t capacity) {
@@ -506,11 +504,15 @@ void IOBuf::prependChain(unique_ptr<IOBuf>&& iobuf) {
 }
 
 unique_ptr<IOBuf> IOBuf::clone() const {
-  return make_unique<IOBuf>(cloneAsValue());
+  return std::make_unique<IOBuf>(cloneAsValue());
 }
 
 unique_ptr<IOBuf> IOBuf::cloneOne() const {
-  return make_unique<IOBuf>(cloneOneAsValue());
+  return std::make_unique<IOBuf>(cloneOneAsValue());
+}
+
+unique_ptr<IOBuf> IOBuf::cloneCoalesced() const {
+  return std::make_unique<IOBuf>(cloneCoalescedAsValue());
 }
 
 IOBuf IOBuf::cloneAsValue() const {
@@ -535,6 +537,36 @@ IOBuf IOBuf::cloneOneAsValue() const {
       capacity_,
       data_,
       length_);
+}
+
+IOBuf IOBuf::cloneCoalescedAsValue() const {
+  if (!isChained()) {
+    return cloneOneAsValue();
+  }
+  // Coalesce into newBuf
+  const uint64_t newLength = computeChainDataLength();
+  const uint64_t newHeadroom = headroom();
+  const uint64_t newTailroom = prev()->tailroom();
+  const uint64_t newCapacity = newLength + newHeadroom + newTailroom;
+  IOBuf newBuf{CREATE, newCapacity};
+  newBuf.advance(newHeadroom);
+
+  auto current = this;
+  do {
+    if (current->length() > 0) {
+      DCHECK_NOTNULL(current->data());
+      DCHECK_LE(current->length(), newBuf.tailroom());
+      memcpy(newBuf.writableTail(), current->data(), current->length());
+      newBuf.append(current->length());
+    }
+    current = current->next();
+  } while (current != this);
+
+  DCHECK_EQ(newLength, newBuf.length());
+  DCHECK_EQ(newHeadroom, newBuf.headroom());
+  DCHECK_LE(newTailroom, newBuf.tailroom());
+
+  return newBuf;
 }
 
 void IOBuf::unshareOneSlow() {
@@ -1016,4 +1048,4 @@ bool IOBufEqual::operator()(const IOBuf& a, const IOBuf& b) const {
   }
 }
 
-} // folly
+} // namespace folly

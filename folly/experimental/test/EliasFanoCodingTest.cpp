@@ -41,12 +41,12 @@ uint8_t slowDefaultNumLowerBits(size_t upperBound, size_t size) {
   return uint8_t(folly::findLastSet(upperBound / size) - 1);
 }
 
-}  // namespace
+} // namespace
 
 TEST(EliasFanoCoding, defaultNumLowerBits) {
   // Verify that slowDefaultNumLowerBits and optimized
   // Encoder::defaultNumLowerBits agree.
-  constexpr size_t kNumIterations = 2500;
+  static constexpr size_t kNumIterations = 2500;
   auto compare = [](size_t upperBound, size_t size) {
     using Encoder = EliasFanoEncoderV2<size_t>;
     EXPECT_EQ(int(slowDefaultNumLowerBits(upperBound, size)),
@@ -94,11 +94,12 @@ class EliasFanoCodingTest : public ::testing::Test {
     testEmpty<Reader, Encoder>();
   }
 
-  template <size_t kSkipQuantum, size_t kForwardQuantum>
+  template <size_t kSkipQuantum, size_t kForwardQuantum, class SizeType>
   void doTestAll() {
     typedef EliasFanoEncoderV2<
       uint32_t, uint32_t, kSkipQuantum, kForwardQuantum> Encoder;
-    typedef EliasFanoReader<Encoder, instructions::EF_TEST_ARCH> Reader;
+    using Reader =
+        EliasFanoReader<Encoder, instructions::EF_TEST_ARCH, false, SizeType>;
     testAll<Reader, Encoder>({0});
     testAll<Reader, Encoder>(generateRandomList(100 * 1000, 10 * 1000 * 1000));
     testAll<Reader, Encoder>(generateSeqList(1, 100000, 100));
@@ -110,19 +111,23 @@ TEST_F(EliasFanoCodingTest, Empty) {
 }
 
 TEST_F(EliasFanoCodingTest, Simple) {
-  doTestAll<0, 0>();
+  doTestAll<0, 0, uint32_t>();
+  doTestAll<0, 0, size_t>();
 }
 
 TEST_F(EliasFanoCodingTest, SkipPointers) {
-  doTestAll<128, 0>();
+  doTestAll<128, 0, uint32_t>();
+  doTestAll<128, 0, size_t>();
 }
 
 TEST_F(EliasFanoCodingTest, ForwardPointers) {
-  doTestAll<0, 128>();
+  doTestAll<0, 128, uint32_t>();
+  doTestAll<0, 128, size_t>();
 }
 
 TEST_F(EliasFanoCodingTest, SkipForwardPointers) {
-  doTestAll<128, 128>();
+  doTestAll<128, 128, uint32_t>();
+  doTestAll<128, 128, size_t>();
 }
 
 TEST_F(EliasFanoCodingTest, Select64) {
@@ -158,6 +163,8 @@ TEST_F(EliasFanoCodingTest, BugLargeGapInUpperBits) { // t16274876
     ASSERT_EQ(kLargeValue, reader.value());
     ASSERT_EQ(0, reader.previousValue());
   }
+
+  list.free();
 }
 
 namespace bm {
@@ -200,7 +207,7 @@ void free() {
   list.free();
 }
 
-}  // namespace bm
+} // namespace bm
 
 BENCHMARK(Next, iters) {
   bmNext<bm::Reader>(bm::list, bm::data, iters);

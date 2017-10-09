@@ -17,9 +17,6 @@
 #define HAZPTR_H
 
 #include <atomic>
-#include <functional>
-#include <memory>
-#include <type_traits>
 
 /* Stand-in for C++17 std::pmr::memory_resource */
 #include <folly/experimental/hazptr/memory_resource.h>
@@ -37,6 +34,15 @@ class hazptr_obj;
 template <typename T, typename Deleter>
 class hazptr_obj_base;
 
+/** hazptr_local: Optimized template for bulk construction and destruction of
+ *  hazard pointers */
+template <size_t M>
+class hazptr_array;
+
+/** hazptr_local: Optimized template for locally-used hazard pointers */
+template <size_t M>
+class hazptr_local;
+
 /** hazptr_domain: Class of hazard pointer domains. Each domain manages a set
  *  of hazard pointers and a set of retired objects. */
 class hazptr_domain {
@@ -51,12 +57,10 @@ class hazptr_domain {
   hazptr_domain& operator=(hazptr_domain&&) = delete;
 
  private:
+  friend class hazptr_holder;
   template <typename, typename>
   friend class hazptr_obj_base;
-  template <typename> friend class hazptr_owner;
-
-  /** Constant -- May be changed to parameter in the future */
-  enum { kScanThreshold = 3 };
+  friend struct hazptr_priv;
 
   memory_resource* mr_;
   std::atomic<hazptr_rec*> hazptrs_ = {nullptr};
@@ -68,19 +72,22 @@ class hazptr_domain {
   hazptr_rec* hazptrAcquire();
   void hazptrRelease(hazptr_rec*) noexcept;
   int pushRetired(hazptr_obj* head, hazptr_obj* tail, int count);
+  bool reachedThreshold(int rcount);
   void tryBulkReclaim();
   void bulkReclaim();
-  void try_reclaim();
 };
 
 /** Get the default hazptr_domain */
 hazptr_domain& default_hazptr_domain();
+
+extern hazptr_domain default_domain_;
 
 /** Definition of hazptr_obj */
 class hazptr_obj {
   friend class hazptr_domain;
   template <typename, typename>
   friend class hazptr_obj_base;
+  friend struct hazptr_priv;
 
   void (*reclaim_)(hazptr_obj*);
   hazptr_obj* next_;
@@ -88,63 +95,141 @@ class hazptr_obj {
 };
 
 /** Definition of hazptr_obj_base */
-template <typename T, typename Deleter = std::default_delete<T>>
-class hazptr_obj_base : private hazptr_obj {
+template <typename T, typename D = std::default_delete<T>>
+class hazptr_obj_base : public hazptr_obj {
  public:
   /* Retire a removed object and pass the responsibility for
    * reclaiming it to the hazptr library */
-  void retire(
-      hazptr_domain& domain = default_hazptr_domain(),
-      Deleter reclaim = {});
+  void retire(hazptr_domain& domain = default_hazptr_domain(), D reclaim = {});
 
  private:
-  Deleter deleter_;
+  D deleter_;
 };
 
-/** hazptr_owner: Template for automatic acquisition and release of
+/** hazptr_holder: Class for automatic acquisition and release of
  *  hazard pointers, and interface for hazard pointer operations. */
-template <typename T> class hazptr_owner {
+class hazptr_holder {
+  template <size_t M>
+  friend class hazptr_array;
+  template <size_t M>
+  friend class hazptr_local;
+
  public:
   /* Constructor automatically acquires a hazard pointer. */
-  explicit hazptr_owner(hazptr_domain& domain = default_hazptr_domain());
-  /* Destructor automatically clears and releases the owned hazard pointer. */
-  ~hazptr_owner();
+  explicit hazptr_holder(hazptr_domain& domain = default_hazptr_domain());
+  /* Construct an empty hazptr_holder. */
+  // Note: This diverges from the proposal in P0233R4
+  explicit hazptr_holder(std::nullptr_t) noexcept;
 
-  /* Copy and move constructors and assignment operators are
-   * disallowed because:
-   * - Each hazptr_owner owns exactly one hazard pointer at any time.
-   * - Each hazard pointer may have up to one owner at any time. */
-  hazptr_owner(const hazptr_owner&) = delete;
-  hazptr_owner(hazptr_owner&&) = delete;
-  hazptr_owner& operator=(const hazptr_owner&) = delete;
-  hazptr_owner& operator=(hazptr_owner&&) = delete;
+  /* Destructor automatically clears and releases the owned hazard pointer. */
+  ~hazptr_holder();
+
+  hazptr_holder(const hazptr_holder&) = delete;
+  hazptr_holder& operator=(const hazptr_holder&) = delete;
+  // Note: This diverges from the proposal in P0233R4 which disallows
+  // move constructor and assignment operator.
+  hazptr_holder(hazptr_holder&&) noexcept;
+  hazptr_holder& operator=(hazptr_holder&&) noexcept;
 
   /** Hazard pointer operations */
   /* Returns a protected pointer from the source */
-  template <typename A = std::atomic<T*>>
-  T* get_protected(const A& src) noexcept;
+  template <typename T>
+  T* get_protected(const std::atomic<T*>& src) noexcept;
+  /* Returns a protected pointer from the source, filtering
+     the protected pointer through function Func.  Useful for
+     stealing bits of the pointer word */
+  template <typename T, typename Func>
+  T* get_protected(const std::atomic<T*>& src, Func f) noexcept;
   /* Return true if successful in protecting ptr if src == ptr after
    * setting the hazard pointer.  Otherwise sets ptr to src. */
-  template <typename A = std::atomic<T*>>
-  bool try_protect(T*& ptr, const A& src) noexcept;
+  template <typename T>
+  bool try_protect(T*& ptr, const std::atomic<T*>& src) noexcept;
+  /* Return true if successful in protecting ptr if src == ptr after
+   * setting the hazard pointer, filtering the pointer through Func.
+   * Otherwise sets ptr to src. */
+  template <typename T, typename Func>
+  bool try_protect(T*& ptr, const std::atomic<T*>& src, Func f) noexcept;
   /* Set the hazard pointer to ptr */
-  void set(const T* ptr) noexcept;
-  /* Clear the hazard pointer */
-  void clear() noexcept;
+  template <typename T>
+  void reset(const T* ptr) noexcept;
+  /* Set the hazard pointer to nullptr */
+  void reset(std::nullptr_t = nullptr) noexcept;
 
-  /* Swap ownership of hazard pointers between hazptr_owner-s. */
+  /* Swap ownership of hazard pointers between hazptr_holder-s. */
   /* Note: The owned hazard pointers remain unmodified during the swap
    * and continue to protect the respective objects that they were
    * protecting before the swap, if any. */
-  void swap(hazptr_owner&) noexcept;
+  void swap(hazptr_holder&) noexcept;
 
  private:
   hazptr_domain* domain_;
   hazptr_rec* hazptr_;
 };
 
-template <typename T>
-void swap(hazptr_owner<T>&, hazptr_owner<T>&) noexcept;
+void swap(hazptr_holder&, hazptr_holder&) noexcept;
+
+using aligned_hazptr_holder = typename std::
+    aligned_storage<sizeof(hazptr_holder), alignof(hazptr_holder)>::type;
+
+/**
+ *  hazptr_array: Optimized for bulk construction and destruction of
+ *  hazptr_holder-s.
+ *
+ *  WARNING: Do not move from or to individual hazptr_holder-s.
+ *  Only move the whole hazptr_array.
+ */
+template <size_t M = 1>
+class hazptr_array {
+  static_assert(M > 0, "M must be a positive integer.");
+
+ public:
+  hazptr_array();
+  explicit hazptr_array(std::nullptr_t) noexcept;
+
+  hazptr_array(const hazptr_array&) = delete;
+  hazptr_array& operator=(const hazptr_array&) = delete;
+  hazptr_array(hazptr_array&& other) noexcept;
+  hazptr_array& operator=(hazptr_array&& other) noexcept;
+
+  ~hazptr_array();
+
+  hazptr_holder& operator[](size_t i) noexcept;
+
+ private:
+  aligned_hazptr_holder raw_[M];
+  bool empty_{false};
+};
+
+/**
+ *  hazptr_local: Optimized for construction and destruction of
+ *  one or more hazptr_holder-s with local scope.
+ *
+ *  WARNING 1: Do not move from or to individual hazptr_holder-s.
+ *
+ *  WARNING 2: There can only be one hazptr_local active for the same
+ *  thread at any time. This is not tracked and checked by the
+ *  implementation because it would negate the performance gains of
+ *  this class.
+ */
+template <size_t M = 1>
+class hazptr_local {
+  static_assert(M > 0, "M must be a positive integer.");
+
+ public:
+  hazptr_local();
+  hazptr_local(const hazptr_local&) = delete;
+  hazptr_local& operator=(const hazptr_local&) = delete;
+  hazptr_local(hazptr_local&&) = delete;
+  hazptr_local& operator=(hazptr_local&&) = delete;
+
+  ~hazptr_local();
+
+  hazptr_holder& operator[](size_t i) noexcept;
+
+ private:
+  aligned_hazptr_holder raw_[M];
+  bool need_destruct_{false};
+};
 
 } // namespace hazptr
 } // namespace folly

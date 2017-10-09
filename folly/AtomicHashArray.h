@@ -39,6 +39,7 @@
 
 #include <folly/Hash.h>
 #include <folly/ThreadCachedInt.h>
+#include <folly/Utility.h>
 
 namespace folly {
 
@@ -66,16 +67,6 @@ struct AtomicHashArrayQuadraticProbeFcn
 
 // Enables specializing checkLegalKey without specializing its class.
 namespace detail {
-// Local copy of folly::gen::Identity, to avoid heavy dependencies.
-class AHAIdentity {
- public:
-  template<class Value>
-  auto operator()(Value&& value) const ->
-    decltype(std::forward<Value>(value)) {
-    return std::forward<Value>(value);
-  }
-};
-
 template <typename NotKeyT, typename KeyT>
 inline void checkLegalKeyIfKeyTImpl(NotKeyT /* ignored */,
                                     KeyT /* emptyKey */,
@@ -89,22 +80,26 @@ inline void checkLegalKeyIfKeyTImpl(KeyT key_in, KeyT emptyKey,
   DCHECK_NE(key_in, lockedKey);
   DCHECK_NE(key_in, erasedKey);
 }
-}  // namespace detail
+} // namespace detail
 
-template <class KeyT, class ValueT,
-          class HashFcn = std::hash<KeyT>,
-          class EqualFcn = std::equal_to<KeyT>,
-          class Allocator = std::allocator<char>,
-          class ProbeFcn = AtomicHashArrayLinearProbeFcn,
-          class KeyConvertFcn = detail::AHAIdentity>
+template <
+    class KeyT,
+    class ValueT,
+    class HashFcn = std::hash<KeyT>,
+    class EqualFcn = std::equal_to<KeyT>,
+    class Allocator = std::allocator<char>,
+    class ProbeFcn = AtomicHashArrayLinearProbeFcn,
+    class KeyConvertFcn = Identity>
 class AtomicHashMap;
 
-template <class KeyT, class ValueT,
-          class HashFcn = std::hash<KeyT>,
-          class EqualFcn = std::equal_to<KeyT>,
-          class Allocator = std::allocator<char>,
-          class ProbeFcn = AtomicHashArrayLinearProbeFcn,
-          class KeyConvertFcn = detail::AHAIdentity>
+template <
+    class KeyT,
+    class ValueT,
+    class HashFcn = std::hash<KeyT>,
+    class EqualFcn = std::equal_to<KeyT>,
+    class Allocator = std::allocator<char>,
+    class ProbeFcn = AtomicHashArrayLinearProbeFcn,
+    class KeyConvertFcn = Identity>
 class AtomicHashArray : boost::noncopyable {
   static_assert((std::is_convertible<KeyT,int32_t>::value ||
                  std::is_convertible<KeyT,int64_t>::value ||
@@ -132,7 +127,7 @@ class AtomicHashArray : boost::noncopyable {
   const KeyT    kLockedKey_;
   const KeyT    kErasedKey_;
 
-  template<class ContT, class IterVal>
+  template <class ContT, class IterVal>
   struct aha_iterator;
 
   typedef aha_iterator<const AtomicHashArray,const value_type> const_iterator;
@@ -184,7 +179,6 @@ class AtomicHashArray : boost::noncopyable {
     uint32_t entryCountThreadCacheSize;
     size_t capacity; // if positive, overrides maxLoadFactor
 
-  public:
     //  Cannot have constexpr ctor because some compilers rightly complain.
     Config() : emptyKey((KeyT)-1),
                lockedKey((KeyT)-2),
@@ -215,17 +209,19 @@ class AtomicHashArray : boost::noncopyable {
    *
    *   See folly/test/ArrayHashArrayTest.cpp for sample usage.
    */
-  template <typename LookupKeyT = key_type,
-            typename LookupHashFcn = hasher,
-            typename LookupEqualFcn = key_equal>
+  template <
+      typename LookupKeyT = key_type,
+      typename LookupHashFcn = hasher,
+      typename LookupEqualFcn = key_equal>
   iterator find(LookupKeyT k) {
     return iterator(this,
         findInternal<LookupKeyT, LookupHashFcn, LookupEqualFcn>(k).idx);
   }
 
-  template <typename LookupKeyT = key_type,
-            typename LookupHashFcn = hasher,
-            typename LookupEqualFcn = key_equal>
+  template <
+      typename LookupKeyT = key_type,
+      typename LookupHashFcn = hasher,
+      typename LookupEqualFcn = key_equal>
   const_iterator find(LookupKeyT k) const {
     return const_cast<AtomicHashArray*>(this)->
       find<LookupKeyT, LookupHashFcn, LookupEqualFcn>(k);
@@ -260,11 +256,12 @@ class AtomicHashArray : boost::noncopyable {
    *   equal key is already present, this method converts 'key_in' to a key of
    *   type KeyT using the provided LookupKeyToKeyFcn.
    */
-  template <typename LookupKeyT = key_type,
-            typename LookupHashFcn = hasher,
-            typename LookupEqualFcn = key_equal,
-            typename LookupKeyToKeyFcn = key_convert,
-            typename... ArgTs>
+  template <
+      typename LookupKeyT = key_type,
+      typename LookupHashFcn = hasher,
+      typename LookupEqualFcn = key_equal,
+      typename LookupKeyToKeyFcn = key_convert,
+      typename... ArgTs>
   std::pair<iterator,bool> emplace(LookupKeyT key_in, ArgTs&&... vCtorArgs) {
     SimpleRetT ret = insertInternal<LookupKeyT,
                                     LookupHashFcn,
@@ -348,18 +345,18 @@ friend class AtomicHashMap<KeyT,
     SimpleRetT() = default;
   };
 
-
-
-  template <typename LookupKeyT = key_type,
-            typename LookupHashFcn = hasher,
-            typename LookupEqualFcn = key_equal,
-            typename LookupKeyToKeyFcn = detail::AHAIdentity,
-            typename... ArgTs>
+  template <
+      typename LookupKeyT = key_type,
+      typename LookupHashFcn = hasher,
+      typename LookupEqualFcn = key_equal,
+      typename LookupKeyToKeyFcn = Identity,
+      typename... ArgTs>
   SimpleRetT insertInternal(LookupKeyT key, ArgTs&&... vCtorArgs);
 
-  template <typename LookupKeyT = key_type,
-            typename LookupHashFcn = hasher,
-            typename LookupEqualFcn = key_equal>
+  template <
+      typename LookupKeyT = key_type,
+      typename LookupHashFcn = hasher,
+      typename LookupEqualFcn = key_equal>
   SimpleRetT findInternal(const LookupKeyT key);
 
   template <typename MaybeKeyT>

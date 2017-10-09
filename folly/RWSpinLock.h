@@ -138,15 +138,13 @@ pthread_rwlock_t Read        728698     24us       101ns     7.28ms     194us
 #include <folly/Portability.h>
 #include <folly/portability/Asm.h>
 
-#if defined(__GNUC__) && \
-  (defined(__i386) || FOLLY_X64 || \
-   defined(ARCH_K8))
-# define RW_SPINLOCK_USE_X86_INTRINSIC_
-# include <x86intrin.h>
+#if defined(__GNUC__) && (defined(__i386) || FOLLY_X64 || defined(ARCH_K8))
+#define RW_SPINLOCK_USE_X86_INTRINSIC_
+#include <x86intrin.h>
 #elif defined(_MSC_VER) && defined(FOLLY_X64)
-# define RW_SPINLOCK_USE_X86_INTRINSIC_
+#define RW_SPINLOCK_USE_X86_INTRINSIC_
 #else
-# undef RW_SPINLOCK_USE_X86_INTRINSIC_
+#undef RW_SPINLOCK_USE_X86_INTRINSIC_
 #endif
 
 // iOS doesn't define _mm_cvtsi64_si128 and friends
@@ -192,7 +190,7 @@ class RWSpinLock {
 
   // Lockable Concept
   void lock() {
-    int count = 0;
+    uint_fast32_t count = 0;
     while (!LIKELY(try_lock())) {
       if (++count > 1000) std::this_thread::yield();
     }
@@ -206,7 +204,7 @@ class RWSpinLock {
 
   // SharedLockable Concept
   void lock_shared() {
-    int count = 0;
+    uint_fast32_t count = 0;
     while (!LIKELY(try_lock_shared())) {
       if (++count > 1000) std::this_thread::yield();
     }
@@ -224,7 +222,7 @@ class RWSpinLock {
 
   // UpgradeLockable Concept
   void lock_upgrade() {
-    int count = 0;
+    uint_fast32_t count = 0;
     while (!try_lock_upgrade()) {
       if (++count > 1000) std::this_thread::yield();
     }
@@ -307,7 +305,7 @@ class RWSpinLock {
 
   class ReadHolder {
    public:
-    explicit ReadHolder(RWSpinLock* lock = nullptr) : lock_(lock) {
+    explicit ReadHolder(RWSpinLock* lock) : lock_(lock) {
       if (lock_) lock_->lock_shared();
     }
 
@@ -360,7 +358,7 @@ class RWSpinLock {
 
   class UpgradedHolder {
    public:
-    explicit UpgradedHolder(RWSpinLock* lock = nullptr) : lock_(lock) {
+    explicit UpgradedHolder(RWSpinLock* lock) : lock_(lock) {
       if (lock_) lock_->lock_upgrade();
     }
 
@@ -409,7 +407,7 @@ class RWSpinLock {
 
   class WriteHolder {
    public:
-    explicit WriteHolder(RWSpinLock* lock = nullptr) : lock_(lock) {
+    explicit WriteHolder(RWSpinLock* lock) : lock_(lock) {
       if (lock_) lock_->lock();
     }
 
@@ -519,10 +517,9 @@ struct RWTicketIntTrait<32> {
   }
 #endif
 };
-}  // detail
+} // namespace detail
 
-
-template<size_t kBitWidth, bool kFavorWriter=false>
+template <size_t kBitWidth, bool kFavorWriter = false>
 class RWTicketSpinLockT {
   typedef detail::RWTicketIntTrait<kBitWidth> IntTraitType;
   typedef typename detail::RWTicketIntTrait<kBitWidth>::FullInt FullInt;
@@ -542,13 +539,13 @@ class RWTicketSpinLockT {
   } ticket;
 
  private: // Some x64-specific utilities for atomic access to ticket.
-  template<class T> static T load_acquire(T* addr) {
+  template <class T> static T load_acquire(T* addr) {
     T t = *addr; // acquire barrier
     asm_volatile_memory();
     return t;
   }
 
-  template<class T>
+  template <class T>
   static void store_release(T* addr, T v) {
     asm_volatile_memory();
     *addr = v; // release barrier
@@ -606,7 +603,7 @@ class RWTicketSpinLockT {
     // cores allocated to this process. This is less likely than the
     // corresponding situation in lock_shared(), but we still want to
     // avoid it
-    int count = 0;
+    uint_fast32_t count = 0;
     QuarterInt val = __sync_fetch_and_add(&ticket.users, 1);
     while (val != load_acquire(&ticket.write)) {
       asm_volatile_pause();
@@ -656,7 +653,7 @@ class RWTicketSpinLockT {
     // std::this_thread::yield() is important here because we can't grab the
     // shared lock if there is a pending writeLockAggressive, so we
     // need to let threads that already have a shared lock complete
-    int count = 0;
+    uint_fast32_t count = 0;
     while (!LIKELY(try_lock_shared())) {
       asm_volatile_pause();
       if (UNLIKELY((++count & 1023) == 0)) std::this_thread::yield();
@@ -681,7 +678,7 @@ class RWTicketSpinLockT {
   }
 
   void unlock_shared() {
-    QuarterInt val = __sync_fetch_and_add(&ticket.write, 1);
+    __sync_fetch_and_add(&ticket.write, 1);
   }
 
   class WriteHolder;
@@ -692,8 +689,7 @@ class RWTicketSpinLockT {
     ReadHolder(ReadHolder const&) = delete;
     ReadHolder& operator=(ReadHolder const&) = delete;
 
-    explicit ReadHolder(RWSpinLock *lock = nullptr) :
-      lock_(lock) {
+    explicit ReadHolder(RWSpinLock* lock) : lock_(lock) {
       if (lock_) lock_->lock_shared();
     }
 
@@ -732,7 +728,7 @@ class RWTicketSpinLockT {
     WriteHolder(WriteHolder const&) = delete;
     WriteHolder& operator=(WriteHolder const&) = delete;
 
-    explicit WriteHolder(RWSpinLock *lock = nullptr) : lock_(lock) {
+    explicit WriteHolder(RWSpinLock* lock) : lock_(lock) {
       if (lock_) lock_->lock();
     }
     explicit WriteHolder(RWSpinLock &lock) : lock_ (&lock) {
@@ -765,7 +761,7 @@ typedef RWTicketSpinLockT<64> RWTicketSpinLock64;
 
 #endif  // RW_SPINLOCK_USE_X86_INTRINSIC_
 
-}  // namespace folly
+} // namespace folly
 
 #ifdef RW_SPINLOCK_USE_X86_INTRINSIC_
 #undef RW_SPINLOCK_USE_X86_INTRINSIC_

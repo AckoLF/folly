@@ -14,11 +14,11 @@
  * limitations under the License.
  */
 
+#include <condition_variable>
+#include <mutex>
+#include <sstream>
 #include <stdexcept>
 #include <thread>
-#include <mutex>
-#include <condition_variable>
-#include <sstream>
 
 #include <folly/experimental/exception_tracer/ExceptionCounterLib.h>
 #include <folly/portability/GTest.h>
@@ -111,8 +111,8 @@ TEST(ExceptionCounter, multyThreads) {
 
   {
     std::unique_lock<std::mutex> lock(preparedMutex);
-    preparedBarrier.wait(lock,
-                         [&]() { return preparedThreads == kNumThreads; });
+    preparedBarrier.wait(
+        lock, [&]() { return preparedThreads == kNumThreads; });
   }
 
   auto stats = getExceptionStatistics();

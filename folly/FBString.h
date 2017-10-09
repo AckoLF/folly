@@ -21,7 +21,7 @@
 
 #include <atomic>
 #include <cstddef>
-#include <ios>
+#include <iosfwd>
 #include <limits>
 #include <type_traits>
 
@@ -33,13 +33,14 @@
 
 #pragma GCC system_header
 
-#include "basic_fbstring_malloc.h"
+#include "basic_fbstring_malloc.h" // @manual
 
 // When used as std::string replacement always disable assertions.
 #define FBSTRING_ASSERT(expr) /* empty */
 
 #else // !_LIBSTDCXX_FBSTRING
 
+#include <folly/CppAttributes.h>
 #include <folly/Portability.h>
 
 // libc++ doesn't provide this header, nor does msvc
@@ -56,13 +57,7 @@
 #include <folly/Hash.h>
 #include <folly/Malloc.h>
 #include <folly/Traits.h>
-
-#if FOLLY_HAVE_DEPRECATED_ASSOC
-#ifdef _GLIBCXX_SYMVER
-#include <ext/hash_set>
-#include <ext/hash_map>
-#endif
-#endif
+#include <folly/portability/BitsFunctexcept.h>
 
 // When used in folly, assertions are not disabled.
 #define FBSTRING_ASSERT(expr) assert(expr)
@@ -79,13 +74,13 @@
 #define FBSTRING_UNLIKELY(x) (x)
 #endif
 
-#pragma GCC diagnostic push
+FOLLY_PUSH_WARNING
 // Ignore shadowing warnings within this file, so includers can use -Wshadow.
-#pragma GCC diagnostic ignored "-Wshadow"
+FOLLY_GCC_DISABLE_WARNING("-Wshadow")
 // GCC 4.9 has a false positive in setSmallSize (probably
 // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=59124), disable
 // compile-time array bound checking.
-#pragma GCC diagnostic ignored "-Warray-bounds"
+FOLLY_GCC_DISABLE_WARNING("-Warray-bounds")
 
 // FBString cannot use throw when replacing std::string, though it may still
 // use std::__throw_*
@@ -93,11 +88,18 @@
 #define throw FOLLY_FBSTRING_MAY_NOT_USE_THROW
 
 #ifdef _LIBSTDCXX_FBSTRING
-namespace std _GLIBCXX_VISIBILITY(default) {
-_GLIBCXX_BEGIN_NAMESPACE_VERSION
+#define FOLLY_FBSTRING_BEGIN_NAMESPACE         \
+  namespace std _GLIBCXX_VISIBILITY(default) { \
+    _GLIBCXX_BEGIN_NAMESPACE_VERSION
+#define FOLLY_FBSTRING_END_NAMESPACE \
+  _GLIBCXX_END_NAMESPACE_VERSION     \
+  } // namespace std
 #else
-namespace folly {
+#define FOLLY_FBSTRING_BEGIN_NAMESPACE namespace folly {
+#define FOLLY_FBSTRING_END_NAMESPACE } // namespace folly
 #endif
+
+FOLLY_FBSTRING_BEGIN_NAMESPACE
 
 #if defined(__clang__)
 # if __has_feature(address_sanitizer)
@@ -229,7 +231,7 @@ enum class AcquireMallocatedString {};
 
 template <class Char>
 class fbstring_core_model {
-public:
+ public:
   fbstring_core_model();
   fbstring_core_model(const fbstring_core_model &);
   ~fbstring_core_model();
@@ -278,7 +280,7 @@ public:
   // the string without reallocation. For reference-counted strings,
   // it should fork the data even if minCapacity < size().
   void reserve(size_t minCapacity);
-private:
+ private:
   // Do not implement
   fbstring_core_model& operator=(const fbstring_core_model &);
 };
@@ -311,7 +313,7 @@ private:
  * to extract capacity/category.
  */
 template <class Char> class fbstring_core {
-protected:
+ protected:
 // It's MSVC, so we just have to guess ... and allow an override
 #ifdef _MSC_VER
 # ifdef FOLLY_ENDIAN_BE
@@ -323,7 +325,7 @@ protected:
   static constexpr auto kIsLittleEndian =
       __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__;
 #endif
-public:
+ public:
   fbstring_core() noexcept { reset(); }
 
   fbstring_core(const fbstring_core & rhs) {
@@ -499,7 +501,9 @@ public:
         if (RefCounted::refs(ml_.data_) > 1) {
           return ml_.size_;
         }
-      default: {}
+        break;
+      default:
+        break;
     }
     return ml_.capacity();
   }
@@ -508,7 +512,7 @@ public:
     return category() == Category::isLarge && RefCounted::refs(ml_.data_) > 1;
   }
 
-private:
+ private:
   // Disabled
   fbstring_core & operator=(const fbstring_core & rhs);
 
@@ -753,10 +757,13 @@ inline void fbstring_core<Char>::initSmall(
     switch ((byteSize + wordWidth - 1) / wordWidth) { // Number of words.
       case 3:
         ml_.capacity_ = reinterpret_cast<const size_t*>(data)[2];
+        FOLLY_FALLTHROUGH;
       case 2:
         ml_.size_ = reinterpret_cast<const size_t*>(data)[1];
+        FOLLY_FALLTHROUGH;
       case 1:
         ml_.data_ = *reinterpret_cast<Char**>(const_cast<Char*>(data));
+        FOLLY_FALLTHROUGH;
       case 0:
         break;
     }
@@ -982,7 +989,7 @@ inline void fbstring_core<Char>::shrinkLarge(const size_t delta) {
  */
 template <class Char>
 class dummy_fbstring_core {
-public:
+ public:
   dummy_fbstring_core() {
   }
   dummy_fbstring_core(const dummy_fbstring_core& another)
@@ -1025,7 +1032,7 @@ public:
     backend_.reserve(minCapacity);
   }
 
-private:
+ private:
   std::basic_string<Char> backend_;
 };
 #endif // !_LIBSTDCXX_FBSTRING
@@ -1038,10 +1045,11 @@ private:
 #ifdef _LIBSTDCXX_FBSTRING
 template <typename E, class T, class A, class Storage>
 #else
-template <typename E,
-          class T = std::char_traits<E>,
-          class A = std::allocator<E>,
-          class Storage = fbstring_core<E> >
+template <
+    typename E,
+    class T = std::char_traits<E>,
+    class A = std::allocator<E>,
+    class Storage = fbstring_core<E>>
 #endif
 class basic_fbstring {
   static void enforce(
@@ -1106,7 +1114,7 @@ class basic_fbstring {
   static constexpr size_type npos = size_type(-1);
   typedef std::true_type IsRelocatable;
 
-private:
+ private:
   static void procrustes(size_type& n, size_type nmax) {
     if (n > nmax) {
       n = nmax;
@@ -1115,7 +1123,7 @@ private:
 
   static size_type traitsLength(const value_type* s);
 
-public:
+ public:
   // C++11 21.4.2 construct/copy/destroy
 
   // Note: while the following two constructors can be (and previously were)
@@ -1147,9 +1155,9 @@ public:
 
 #ifndef _LIBSTDCXX_FBSTRING
   // This is defined for compatibility with std::string
-  /* implicit */ basic_fbstring(const std::string& str)
-      : store_(str.data(), str.size()) {
-  }
+  template <typename A2>
+  /* implicit */ basic_fbstring(const std::basic_string<E, T, A2>& str)
+      : store_(str.data(), str.size()) {}
 #endif
 
   basic_fbstring(const basic_fbstring& str,
@@ -1211,13 +1219,14 @@ public:
 
 #ifndef _LIBSTDCXX_FBSTRING
   // Compatibility with std::string
-  basic_fbstring & operator=(const std::string & rhs) {
+  template <typename A2>
+  basic_fbstring& operator=(const std::basic_string<E, T, A2>& rhs) {
     return assign(rhs.data(), rhs.size());
   }
 
   // Compatibility with std::string
-  std::string toStdString() const {
-    return std::string(data(), size());
+  std::basic_string<E, T, A> toStdString() const {
+    return std::basic_string<E, T, A>(data(), size());
   }
 #else
   // A lot of code in fbcode still uses this method, so keep it here for now.
@@ -1230,7 +1239,24 @@ public:
     return assign(s);
   }
 
-  basic_fbstring& operator=(value_type c);
+  // This actually goes directly against the C++ spec, but the
+  // value_type overload is dangerous, so we're explicitly deleting
+  // any overloads of operator= that could implicitly convert to
+  // value_type.
+  // Note that we do need to explicitly specify the template types because
+  // otherwise MSVC 2017 will aggressively pre-resolve value_type to
+  // traits_type::char_type, which won't compare as equal when determining
+  // which overload the implementation is referring to.
+  // Also note that MSVC 2015 Update 3 requires us to explicitly specify the
+  // namespace in-which to search for basic_fbstring, otherwise it tries to
+  // look for basic_fbstring::basic_fbstring, which is just plain wrong.
+  template <typename TP>
+  typename std::enable_if<
+      std::is_same<
+          typename std::decay<TP>::type,
+          typename folly::basic_fbstring<E, T, A, Storage>::value_type>::value,
+      basic_fbstring<E, T, A, Storage>&>::type
+  operator=(TP c);
 
   basic_fbstring& operator=(std::initializer_list<value_type> il) {
     return assign(il.begin(), il.end());
@@ -1379,7 +1405,7 @@ public:
 
   basic_fbstring& append(size_type n, value_type c);
 
-  template<class InputIterator>
+  template <class InputIterator>
   basic_fbstring& append(InputIterator first, InputIterator last) {
     insert(end(), first, last);
     return *this;
@@ -1470,29 +1496,29 @@ public:
   }
 #endif
 
-private:
- iterator
- insertImplDiscr(const_iterator i, size_type n, value_type c, std::true_type);
+ private:
+  iterator
+  insertImplDiscr(const_iterator i, size_type n, value_type c, std::true_type);
 
- template <class InputIter>
- iterator
- insertImplDiscr(const_iterator i, InputIter b, InputIter e, std::false_type);
+  template <class InputIter>
+  iterator
+  insertImplDiscr(const_iterator i, InputIter b, InputIter e, std::false_type);
 
- template <class FwdIterator>
- iterator insertImpl(
-     const_iterator i,
-     FwdIterator s1,
-     FwdIterator s2,
-     std::forward_iterator_tag);
+  template <class FwdIterator>
+  iterator insertImpl(
+      const_iterator i,
+      FwdIterator s1,
+      FwdIterator s2,
+      std::forward_iterator_tag);
 
- template <class InputIterator>
- iterator insertImpl(
-     const_iterator i,
-     InputIterator b,
-     InputIterator e,
-     std::input_iterator_tag);
+  template <class InputIterator>
+  iterator insertImpl(
+      const_iterator i,
+      InputIterator b,
+      InputIterator e,
+      std::input_iterator_tag);
 
-public:
+ public:
   template <class ItOrLength, class ItOrChar>
   iterator insert(const_iterator p, ItOrLength first_or_n, ItOrChar last_or_c) {
     using Sel = std::integral_constant<
@@ -1576,36 +1602,37 @@ public:
     return replace(i1, i2, s, traitsLength(s));
   }
 
-private:
- basic_fbstring& replaceImplDiscr(
-     iterator i1,
-     iterator i2,
-     const value_type* s,
-     size_type n,
-     std::integral_constant<int, 2>);
+ private:
+  basic_fbstring& replaceImplDiscr(
+      iterator i1,
+      iterator i2,
+      const value_type* s,
+      size_type n,
+      std::integral_constant<int, 2>);
 
- basic_fbstring& replaceImplDiscr(
-     iterator i1,
-     iterator i2,
-     size_type n2,
-     value_type c,
-     std::integral_constant<int, 1>);
+  basic_fbstring& replaceImplDiscr(
+      iterator i1,
+      iterator i2,
+      size_type n2,
+      value_type c,
+      std::integral_constant<int, 1>);
 
- template <class InputIter>
- basic_fbstring& replaceImplDiscr(
-     iterator i1,
-     iterator i2,
-     InputIter b,
-     InputIter e,
-     std::integral_constant<int, 0>);
+  template <class InputIter>
+  basic_fbstring& replaceImplDiscr(
+      iterator i1,
+      iterator i2,
+      InputIter b,
+      InputIter e,
+      std::integral_constant<int, 0>);
 
-private:
- template <class FwdIterator>
- bool replaceAliased(iterator /* i1 */,
-                     iterator /* i2 */,
-                     FwdIterator /* s1 */,
-                     FwdIterator /* s2 */,
-                     std::false_type) {
+ private:
+  template <class FwdIterator>
+  bool replaceAliased(
+      iterator /* i1 */,
+      iterator /* i2 */,
+      FwdIterator /* s1 */,
+      FwdIterator /* s2 */,
+      std::false_type) {
     return false;
   }
 
@@ -1817,7 +1844,7 @@ private:
     return r != 0 ? r : n1 > n2 ? 1 : n1 < n2 ? -1 : 0;
   }
 
-private:
+ private:
   // Data
   Storage store_;
 };
@@ -1860,8 +1887,13 @@ inline basic_fbstring<E, T, A, S>& basic_fbstring<E, T, A, S>::operator=(
 }
 
 template <typename E, class T, class A, class S>
-inline basic_fbstring<E, T, A, S>& basic_fbstring<E, T, A, S>::operator=(
-    const value_type c) {
+template <typename TP>
+inline typename std::enable_if<
+    std::is_same<
+        typename std::decay<TP>::type,
+        typename basic_fbstring<E, T, A, S>::value_type>::value,
+    basic_fbstring<E, T, A, S>&>::type
+basic_fbstring<E, T, A, S>::operator=(TP c) {
   Invariant checker(*this);
 
   if (empty()) {
@@ -2643,13 +2675,13 @@ std::basic_istream<
     std::basic_istream<typename basic_fbstring<E, T, A, S>::value_type,
     typename basic_fbstring<E, T, A, S>::traits_type>& is,
     basic_fbstring<E, T, A, S>& str) {
-  typename std::basic_istream<E, T>::sentry sentry(is);
-  typedef std::basic_istream<typename basic_fbstring<E, T, A, S>::value_type,
-                             typename basic_fbstring<E, T, A, S>::traits_type>
-                        __istream_type;
-  typedef typename __istream_type::ios_base __ios_base;
+  typedef std::basic_istream<
+      typename basic_fbstring<E, T, A, S>::value_type,
+      typename basic_fbstring<E, T, A, S>::traits_type>
+      _istream_type;
+  typename _istream_type::sentry sentry(is);
   size_t extracted = 0;
-  auto err = __ios_base::goodbit;
+  auto err = _istream_type::goodbit;
   if (sentry) {
     auto n = is.width();
     if (n <= 0) {
@@ -2658,7 +2690,7 @@ std::basic_istream<
     str.erase();
     for (auto got = is.rdbuf()->sgetc(); extracted != size_t(n); ++extracted) {
       if (got == T::eof()) {
-        err |= __ios_base::eofbit;
+        err |= _istream_type::eofbit;
         is.width(0);
         break;
       }
@@ -2670,7 +2702,7 @@ std::basic_istream<
     }
   }
   if (!extracted) {
-    err |= __ios_base::failbit;
+    err |= _istream_type::failbit;
   }
   if (err) {
     is.setstate(err);
@@ -2687,28 +2719,31 @@ operator<<(
   typename basic_fbstring<E, T, A, S>::traits_type>& os,
     const basic_fbstring<E, T, A, S>& str) {
 #if _LIBCPP_VERSION
-  typename std::basic_ostream<
-    typename basic_fbstring<E, T, A, S>::value_type,
-    typename basic_fbstring<E, T, A, S>::traits_type>::sentry __s(os);
-  if (__s) {
+  typedef std::basic_ostream<
+      typename basic_fbstring<E, T, A, S>::value_type,
+      typename basic_fbstring<E, T, A, S>::traits_type>
+      _ostream_type;
+  typename _ostream_type::sentry _s(os);
+  if (_s) {
     typedef std::ostreambuf_iterator<
       typename basic_fbstring<E, T, A, S>::value_type,
       typename basic_fbstring<E, T, A, S>::traits_type> _Ip;
     size_t __len = str.size();
     bool __left =
-      (os.flags() & std::ios_base::adjustfield) == std::ios_base::left;
+        (os.flags() & _ostream_type::adjustfield) == _ostream_type::left;
     if (__pad_and_output(_Ip(os),
                          str.data(),
                          __left ? str.data() + __len : str.data(),
                          str.data() + __len,
                          os,
                          os.fill()).failed()) {
-      os.setstate(std::ios_base::badbit | std::ios_base::failbit);
+      os.setstate(_ostream_type::badbit | _ostream_type::failbit);
     }
   }
 #elif defined(_MSC_VER)
+  typedef decltype(os.precision()) streamsize;
   // MSVC doesn't define __ostream_insert
-  os.write(str.data(), std::streamsize(str.size()));
+  os.write(str.data(), static_cast<streamsize>(str.size()));
 #else
   std::__ostream_insert(os, str.data(), str.size());
 #endif
@@ -2722,32 +2757,88 @@ constexpr typename basic_fbstring<E1, T, A, S>::size_type
 #ifndef _LIBSTDCXX_FBSTRING
 // basic_string compatibility routines
 
-template <typename E, class T, class A, class S>
-inline
-bool operator==(const basic_fbstring<E, T, A, S>& lhs,
-                const std::string& rhs) {
+template <typename E, class T, class A, class S, class A2>
+inline bool operator==(
+    const basic_fbstring<E, T, A, S>& lhs,
+    const std::basic_string<E, T, A2>& rhs) {
   return lhs.compare(0, lhs.size(), rhs.data(), rhs.size()) == 0;
 }
 
-template <typename E, class T, class A, class S>
-inline
-bool operator==(const std::string& lhs,
-                const basic_fbstring<E, T, A, S>& rhs) {
+template <typename E, class T, class A, class S, class A2>
+inline bool operator==(
+    const std::basic_string<E, T, A2>& lhs,
+    const basic_fbstring<E, T, A, S>& rhs) {
   return rhs == lhs;
 }
 
-template <typename E, class T, class A, class S>
-inline
-bool operator!=(const basic_fbstring<E, T, A, S>& lhs,
-                const std::string& rhs) {
+template <typename E, class T, class A, class S, class A2>
+inline bool operator!=(
+    const basic_fbstring<E, T, A, S>& lhs,
+    const std::basic_string<E, T, A2>& rhs) {
   return !(lhs == rhs);
 }
 
-template <typename E, class T, class A, class S>
-inline
-bool operator!=(const std::string& lhs,
-                const basic_fbstring<E, T, A, S>& rhs) {
+template <typename E, class T, class A, class S, class A2>
+inline bool operator!=(
+    const std::basic_string<E, T, A2>& lhs,
+    const basic_fbstring<E, T, A, S>& rhs) {
   return !(lhs == rhs);
+}
+
+template <typename E, class T, class A, class S, class A2>
+inline bool operator<(
+    const basic_fbstring<E, T, A, S>& lhs,
+    const std::basic_string<E, T, A2>& rhs) {
+  return lhs.compare(0, lhs.size(), rhs.data(), rhs.size()) < 0;
+}
+
+template <typename E, class T, class A, class S, class A2>
+inline bool operator>(
+    const basic_fbstring<E, T, A, S>& lhs,
+    const std::basic_string<E, T, A2>& rhs) {
+  return lhs.compare(0, lhs.size(), rhs.data(), rhs.size()) > 0;
+}
+
+template <typename E, class T, class A, class S, class A2>
+inline bool operator<(
+    const std::basic_string<E, T, A2>& lhs,
+    const basic_fbstring<E, T, A, S>& rhs) {
+  return rhs > lhs;
+}
+
+template <typename E, class T, class A, class S, class A2>
+inline bool operator>(
+    const std::basic_string<E, T, A2>& lhs,
+    const basic_fbstring<E, T, A, S>& rhs) {
+  return rhs < lhs;
+}
+
+template <typename E, class T, class A, class S, class A2>
+inline bool operator<=(
+    const basic_fbstring<E, T, A, S>& lhs,
+    const std::basic_string<E, T, A2>& rhs) {
+  return !(lhs > rhs);
+}
+
+template <typename E, class T, class A, class S, class A2>
+inline bool operator>=(
+    const basic_fbstring<E, T, A, S>& lhs,
+    const std::basic_string<E, T, A2>& rhs) {
+  return !(lhs < rhs);
+}
+
+template <typename E, class T, class A, class S, class A2>
+inline bool operator<=(
+    const std::basic_string<E, T, A2>& lhs,
+    const basic_fbstring<E, T, A, S>& rhs) {
+  return !(lhs > rhs);
+}
+
+template <typename E, class T, class A, class S, class A2>
+inline bool operator>=(
+    const std::basic_string<E, T, A2>& lhs,
+    const basic_fbstring<E, T, A, S>& rhs) {
+  return !(lhs < rhs);
 }
 
 #if !defined(_LIBSTDCXX_FBSTRING)
@@ -2758,11 +2849,9 @@ typedef basic_fbstring<char> fbstring;
 template <class T, class R, class A, class S>
 FOLLY_ASSUME_RELOCATABLE(basic_fbstring<T, R, A, S>);
 
-#else
-_GLIBCXX_END_NAMESPACE_VERSION
 #endif
 
-} // namespace folly
+FOLLY_FBSTRING_END_NAMESPACE
 
 #ifndef _LIBSTDCXX_FBSTRING
 
@@ -2790,24 +2879,14 @@ namespace std {
 
 FOLLY_FBSTRING_HASH
 
-}  // namespace std
-
-#if FOLLY_HAVE_DEPRECATED_ASSOC
-#if defined(_GLIBCXX_SYMVER) && !defined(__BIONIC__)
-namespace __gnu_cxx {
-
-FOLLY_FBSTRING_HASH
-
-}  // namespace __gnu_cxx
-#endif // _GLIBCXX_SYMVER && !__BIONIC__
-#endif // FOLLY_HAVE_DEPRECATED_ASSOC
+} // namespace std
 
 #undef FOLLY_FBSTRING_HASH
 #undef FOLLY_FBSTRING_HASH1
 
 #endif // _LIBSTDCXX_FBSTRING
 
-#pragma GCC diagnostic pop
+FOLLY_POP_WARNING
 
 #undef FBSTRING_DISABLE_SSO
 #undef FBSTRING_SANITIZE_ADDRESS

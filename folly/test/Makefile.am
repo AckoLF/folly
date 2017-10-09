@@ -49,6 +49,10 @@ array_test_SOURCES = ArrayTest.cpp
 array_test_LDADD = libfollytestmain.la
 TESTS += array_test
 
+constexpr_math_test_SOURCES = ConstexprMathTest.cpp
+constexpr_math_test_LDADD = libfollytestmain.la
+TESTS += constexpr_math_test
+
 if RUN_ARCH_SPECIFIC_TESTS
 small_locks_test_SOURCES = SmallLocksTest.cpp
 small_locks_test_LDADD = libfollytestmain.la
@@ -95,6 +99,10 @@ TESTS += fbstring_test_using_jemalloc
 
 thread_cached_int_test_SOURCES = ThreadCachedIntTest.cpp
 thread_cached_int_test_LDADD = libfollytestmain.la $(top_builddir)/libfollybenchmark.la
+
+thread_id_test_SOURCES = ThreadIdTest.cpp
+thread_id_test_LDADD = libfollytestmain.la
+TESTS += thread_id_test
 
 thread_local_test_SOURCES = ThreadLocalTest.cpp
 thread_local_test_LDADD = libfollytestmain.la $(top_builddir)/libfollybenchmark.la
@@ -157,6 +165,10 @@ synchronized_test_SOURCES = SynchronizedTest.cpp
 synchronized_test_LDADD = libfollytestmain.la
 TESTS += synchronized_test
 
+synchronized_ptr_test_SOURCES = SynchronizedPtrTest.cpp
+synchronized_ptr_test_LDADD = libfollytestmain.la
+TESTS += synchronized_ptr_test
+
 lock_traits_test_SOURCES = LockTraitsTest.cpp
 lock_traits_test_LDADD = libfollytestmain.la
 TESTS += lock_traits_test
@@ -172,10 +184,6 @@ check_PROGRAMS += concurrent_skiplist_benchmark
 conv_benchmark_SOURCES = ConvBenchmark.cpp
 conv_benchmark_LDADD = libfollytestmain.la $(top_builddir)/libfollybenchmark.la
 check_PROGRAMS += conv_benchmark
-
-histogram_test_SOURCES = HistogramTest.cpp
-histogram_test_LDADD = libfollytestmain.la
-TESTS += histogram_test
 
 group_varint_test_SOURCES = GroupVarintTest.cpp
 group_varint_test_LDADD = libfollytestmain.la
@@ -217,11 +225,11 @@ portability_test_SOURCES = PortabilityTest.cpp
 portability_test_LDADD = libfollytestmain.la
 TESTS += portability_test
 
-spooky_hash_v1_test_SOURCES = SpookyHashV1Test.cpp
+spooky_hash_v1_test_SOURCES = ../hash/test/SpookyHashV1Test.cpp
 spooky_hash_v1_test_LDADD = libfollytestmain.la  $(top_builddir)/libfollybenchmark.la
 TESTS += spooky_hash_v1_test
 
-spooky_hash_v2_test_SOURCES = SpookyHashV2Test.cpp
+spooky_hash_v2_test_SOURCES = ../hash/test/SpookyHashV2Test.cpp
 spooky_hash_v2_test_LDADD = libfollytestmain.la  $(top_builddir)/libfollybenchmark.la
 TESTS += spooky_hash_v2_test
 
@@ -249,6 +257,11 @@ portability_constexpr_test_SOURCES = ../portability/test/ConstexprTest.cpp
 portability_constexpr_test_LDADD = libfollytestmain.la
 TESTS += portability_constexpr_test
 
+portability_openssl_test_SOURCES = ../portability/test/OpenSSLPortabilityTest.cpp
+portability_openssl_test_LDADD = libfollytestmain.la
+TESTS += portability_openssl_test
+
+
 try_test_SOURCES = TryTest.cpp
 try_test_LDADD = libfollytestmain.la
 TESTS += try_test
@@ -262,8 +275,10 @@ unit_test_LDADD = libfollytestmain.la
 TESTS += unit_test
 
 futures_test_SOURCES = \
+    ../futures/test/CallbackLifetimeTest.cpp \
     ../futures/test/CollectTest.cpp \
     ../futures/test/ContextTest.cpp \
+    ../futures/test/ConversionOperatorTest.cpp \
     ../futures/test/CoreTest.cpp \
     ../futures/test/EnsureTest.cpp \
     ../futures/test/ExecutorTest.cpp \
@@ -280,6 +295,7 @@ futures_test_SOURCES = \
     ../futures/test/RetryingTest.cpp \
     ../futures/test/SelfDestructTest.cpp \
     ../futures/test/SharedPromiseTest.cpp \
+    ../futures/test/TestExecutorTest.cpp \
     ../futures/test/ThenCompileTest.cpp \
     ../futures/test/ThenTest.cpp \
     ../futures/test/TimekeeperTest.cpp \
@@ -300,6 +316,11 @@ function_test_SOURCES = \
 		FunctionTest.cpp
 function_test_LDADD = libfollytestmain.la
 TESTS += function_test
+
+functional_test_SOURCES = \
+		FunctionalTest.cpp
+functional_test_LDADD = libfollytestmain.la
+TESTS += functional_test
 
 ssl_test_SOURCES = \
 		../ssl/test/OpenSSLHashTest.cpp
@@ -325,5 +346,9 @@ TESTS += singleton_thread_local_test
 utility_test_SOURCES = UtilityTest.cpp
 utility_test_LDADD = libfollytestmain.la
 TESTS += utility_test
+
+iterator_test_SOURCES = IteratorTest.cpp
+iterator_test_LDADD = libfollytestmain.la
+TESTS += iterator_test
 
 check_PROGRAMS += $(TESTS)

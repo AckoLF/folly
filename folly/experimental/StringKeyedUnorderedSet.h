@@ -45,7 +45,7 @@ class BasicStringKeyedUnorderedSet
     : private std::unordered_set<StringPiece, Hasher, Eq, Alloc> {
   using Base = std::unordered_set<StringPiece, Hasher, Eq, Alloc>;
 
-public:
+ public:
   typedef typename Base::key_type key_type;
   typedef typename Base::value_type value_type;
   typedef typename Base::hasher hasher;
@@ -160,9 +160,11 @@ public:
   using Base::cbegin;
   using Base::cend;
   using Base::find;
+  using Base::count;
 
-  bool operator==(const BasicStringKeyedUnorderedSet& rhs) const {
-    const Base& lhs = *this;
+  bool operator==(const BasicStringKeyedUnorderedSet& other) const {
+    Base const& lhs = *this;
+    Base const& rhs = static_cast<Base const&>(other);
     return lhs == rhs;
   }
 
@@ -214,6 +216,10 @@ public:
   using Base::bucket_size;
   using Base::bucket;
 
+  void swap(BasicStringKeyedUnorderedSet& other) & {
+    return Base::swap(other);
+  }
+
   ~BasicStringKeyedUnorderedSet() {
     // Here we assume that unordered_set doesn't use keys in destructor
     for (auto& it : *this) {
@@ -224,4 +230,4 @@ public:
 
 typedef BasicStringKeyedUnorderedSet<> StringKeyedUnorderedSet;
 
-} // folly
+} // namespace folly

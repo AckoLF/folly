@@ -246,7 +246,7 @@ class AsyncServerSocket : public DelayedDestruction
    * time after destroy() returns.  They will not receive any more callback
    * invocations once acceptStopped() is invoked.
    */
-  virtual void destroy();
+  void destroy() override;
 
   /**
    * Attach this AsyncServerSocket to its primary EventBase.
@@ -268,7 +268,7 @@ class AsyncServerSocket : public DelayedDestruction
   /**
    * Get the EventBase used by this socket.
    */
-  EventBase* getEventBase() const {
+  EventBase* getEventBase() const override {
     return eventBase_;
   }
 
@@ -319,6 +319,11 @@ class AsyncServerSocket : public DelayedDestruction
     }
   }
 
+  /* enable zerocopy support for the server sockets - the s = accept sockets
+   * inherit it
+   */
+  bool setZeroCopy(bool enable);
+
   /**
    * Bind to the specified address.
    *
@@ -353,7 +358,7 @@ class AsyncServerSocket : public DelayedDestruction
    *
    * Throws TTransportException on error.
    */
-  void getAddress(SocketAddress* addressReturn) const;
+  void getAddress(SocketAddress* addressReturn) const override;
 
   /**
    * Get the local address to which the socket is bound.
@@ -588,7 +593,9 @@ class AsyncServerSocket : public DelayedDestruction
    * socket's primary EventBase.
    */
   int64_t getNumPendingMessagesInQueue() const {
-    assert(eventBase_ == nullptr || eventBase_->isInEventBaseThread());
+    if (eventBase_) {
+      eventBase_->dcheckIsInEventBaseThread();
+    }
     int64_t numMsgs = 0;
     for (const auto& callback : callbacks_) {
       numMsgs += callback.consumer->getQueue()->size();
@@ -717,7 +724,7 @@ class AsyncServerSocket : public DelayedDestruction
    *
    * Invoke destroy() instead to destroy the AsyncServerSocket.
    */
-  virtual ~AsyncServerSocket();
+  ~AsyncServerSocket() override;
 
  private:
   enum class MessageType {
@@ -744,24 +751,24 @@ class AsyncServerSocket : public DelayedDestruction
    */
   class RemoteAcceptor
       : private NotificationQueue<QueueMessage>::Consumer {
-  public:
+   public:
     explicit RemoteAcceptor(AcceptCallback *callback,
                             ConnectionEventCallback *connectionEventCallback)
       : callback_(callback),
         connectionEventCallback_(connectionEventCallback) {}
 
-    ~RemoteAcceptor() = default;
+    ~RemoteAcceptor() override = default;
 
     void start(EventBase *eventBase, uint32_t maxAtOnce, uint32_t maxInQueue);
     void stop(EventBase* eventBase, AcceptCallback* callback);
 
-    virtual void messageAvailable(QueueMessage&& message);
+    void messageAvailable(QueueMessage&& message) noexcept override;
 
     NotificationQueue<QueueMessage>* getQueue() {
       return &queue_;
     }
 
-  private:
+   private:
     AcceptCallback *callback_;
     ConnectionEventCallback* connectionEventCallback_;
 
@@ -841,7 +848,7 @@ class AsyncServerSocket : public DelayedDestruction
     }
 
     // Inherited from EventHandler
-    virtual void handlerReady(uint16_t events) noexcept {
+    void handlerReady(uint16_t events) noexcept override {
       parent_->handlerReady(events, socket_, addressFamily_);
     }
 
@@ -874,4 +881,4 @@ class AsyncServerSocket : public DelayedDestruction
   ConnectionEventCallback* connectionEventCallback_{nullptr};
 };
 
-} // folly
+} // namespace folly

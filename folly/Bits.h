@@ -62,22 +62,21 @@
 #define FOLLY_INTRINSIC_CONSTEXPR const
 #endif
 
-#include <folly/Portability.h>
-#include <folly/portability/Builtins.h>
-
-#include <folly/Assume.h>
-#include <folly/detail/BitsDetail.h>
-#include <folly/detail/BitIteratorDetail.h>
-#include <folly/Likely.h>
-
 #include <cassert>
-#include <cstring>
 #include <cinttypes>
+#include <cstdint>
+#include <cstring>
 #include <iterator>
 #include <limits>
 #include <type_traits>
+
 #include <boost/iterator/iterator_adaptor.hpp>
-#include <stdint.h>
+
+#include <folly/Assume.h>
+#include <folly/Likely.h>
+#include <folly/Portability.h>
+#include <folly/detail/BitIteratorDetail.h>
+#include <folly/portability/Builtins.h>
 
 namespace folly {
 
@@ -214,7 +213,7 @@ inline typename std::enable_if<
    sizeof(T) <= sizeof(unsigned int)),
   size_t>::type
   popcount(T x) {
-  return size_t(detail::popcount(x));
+  return size_t(__builtin_popcount(x));
 }
 
 template <class T>
@@ -225,7 +224,7 @@ inline typename std::enable_if<
    sizeof(T) <= sizeof(unsigned long long)),
   size_t>::type
   popcount(T x) {
-  return size_t(detail::popcountll(x));
+  return size_t(__builtin_popcountll(x));
 }
 
 /**
@@ -283,7 +282,7 @@ struct EndianInt {
   }
 };
 
-}  // namespace detail
+} // namespace detail
 
 // big* convert between native and big-endian representations
 // little* convert between native and little-endian representations
@@ -551,4 +550,4 @@ inline void storeUnaligned(void* p, T value) {
   }
 }
 
-}  // namespace folly
+} // namespace folly

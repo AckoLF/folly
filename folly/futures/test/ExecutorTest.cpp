@@ -14,11 +14,11 @@
  * limitations under the License.
  */
 
+#include <folly/Baton.h>
 #include <folly/futures/Future.h>
 #include <folly/futures/InlineExecutor.h>
 #include <folly/futures/ManualExecutor.h>
 #include <folly/futures/QueuedImmediateExecutor.h>
-#include <folly/Baton.h>
 #include <folly/portability/GTest.h>
 
 using namespace folly;
@@ -44,6 +44,49 @@ TEST(ManualExecutor, scheduleDur) {
   EXPECT_EQ(count, 0);
   x.advance(dur/2);
   EXPECT_EQ(count, 1);
+}
+
+TEST(ManualExecutor, laterThingsDontBlockEarlierOnes) {
+  ManualExecutor x;
+  auto first = false;
+  std::chrono::milliseconds dur{10};
+  x.schedule([&] { first = true; }, dur);
+  x.schedule([] {}, 2 * dur);
+  EXPECT_FALSE(first);
+  x.advance(dur);
+  EXPECT_TRUE(first);
+}
+
+TEST(ManualExecutor, orderWillNotBeQuestioned) {
+  ManualExecutor x;
+  auto first = false;
+  auto second = false;
+  std::chrono::milliseconds dur{10};
+  x.schedule([&] { first = true; }, dur);
+  x.schedule([&] { second = true; }, 2 * dur);
+  EXPECT_FALSE(first);
+  EXPECT_FALSE(second);
+  x.advance(dur);
+  EXPECT_TRUE(first);
+  EXPECT_FALSE(second);
+  x.advance(dur);
+  EXPECT_TRUE(first);
+  EXPECT_TRUE(second);
+}
+
+TEST(ManualExecutor, evenWhenYouSkipAheadEventsRunInProperOrder) {
+  ManualExecutor x;
+  auto counter = 0;
+  auto first = 0;
+  auto second = 0;
+  std::chrono::milliseconds dur{10};
+  x.schedule([&] { first = ++counter; }, dur);
+  x.schedule([&] { second = ++counter; }, 2 * dur);
+  EXPECT_EQ(first, 0);
+  EXPECT_EQ(second, 0);
+  x.advance(3 * dur);
+  EXPECT_EQ(first, 1);
+  EXPECT_EQ(second, 2);
 }
 
 TEST(ManualExecutor, clockStartsAt0) {
@@ -174,24 +217,14 @@ TEST(Executor, Runnable) {
   EXPECT_EQ(counter, 1);
 }
 
-TEST(Executor, RunnablePtr) {
-  InlineExecutor x;
-  struct Runnable {
-    std::function<void()> fn;
-    void operator()() { fn(); }
-  };
-  size_t counter = 0;
-  auto fnp = std::make_shared<Runnable>();
-  fnp->fn = [&]{ counter++; };
-  x.addPtr(fnp);
-  EXPECT_EQ(counter, 1);
-}
-
 TEST(Executor, ThrowableThen) {
   InlineExecutor x;
+  auto f = Future<Unit>().then([]() { throw std::runtime_error("Faildog"); });
+
+  /*
   auto f = Future<Unit>().via(&x).then([](){
     throw std::runtime_error("Faildog");
-  });
+  });*/
   EXPECT_THROW(f.value(), std::exception);
 }
 

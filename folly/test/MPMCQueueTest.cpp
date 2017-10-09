@@ -46,7 +46,7 @@ using std::vector;
 
 typedef DeterministicSchedule DSched;
 
-template <template<typename> class Atom>
+template <template <typename> class Atom>
 void run_mt_sequencer_thread(
     int numThreads,
     int numOps,
@@ -63,7 +63,7 @@ void run_mt_sequencer_thread(
   }
 }
 
-template <template<typename> class Atom>
+template <template <typename> class Atom>
 void run_mt_sequencer_test(int numThreads, int numOps, uint32_t init) {
   TurnSequencer<Atom> seq(init);
   Atom<uint32_t> spinThreshold(0);
@@ -149,7 +149,7 @@ TEST(MPMCQueue, lots_of_element_types) {
   runElementTypeTest(std::make_pair(10, string("def")));
   runElementTypeTest(vector<string>{{"abc"}});
   runElementTypeTest(std::make_shared<char>('a'));
-  runElementTypeTest(folly::make_unique<char>('a'));
+  runElementTypeTest(std::make_unique<char>('a'));
   runElementTypeTest(boost::intrusive_ptr<RefCounted>(new RefCounted));
   EXPECT_EQ(RefCounted::active_instances, 0);
 }
@@ -160,7 +160,7 @@ TEST(MPMCQueue, lots_of_element_types_dynamic) {
   runElementTypeTest<true>(std::make_pair(10, string("def")));
   runElementTypeTest<true>(vector<string>{{"abc"}});
   runElementTypeTest<true>(std::make_shared<char>('a'));
-  runElementTypeTest<true>(folly::make_unique<char>('a'));
+  runElementTypeTest<true>(std::make_unique<char>('a'));
   runElementTypeTest<true>(boost::intrusive_ptr<RefCounted>(new RefCounted));
   EXPECT_EQ(RefCounted::active_instances, 0);
 }
@@ -235,7 +235,7 @@ TEST(MPMCQueue, enq_capacity_test) {
   }
 }
 
-template <template<typename> class Atom, bool Dynamic = false>
+template <template <typename> class Atom, bool Dynamic = false>
 void runTryEnqDeqThread(
     int numThreads,
     int n, /*numOps*/
@@ -262,7 +262,7 @@ void runTryEnqDeqThread(
   sum += threadSum;
 }
 
-template <template<typename> class Atom, bool Dynamic = false>
+template <template <typename> class Atom, bool Dynamic = false>
 void runTryEnqDeqTest(int numThreads, int numOps) {
   // write and read aren't linearizable, so we don't have
   // hard guarantees on their individual behavior.  We can still test
@@ -381,9 +381,10 @@ struct WriteCaller : public WriteMethodCaller<Q> {
   string methodName() override { return "write"; }
 };
 
-template <typename Q,
-          class Clock = steady_clock,
-          class Duration = typename Clock::duration>
+template <
+    typename Q,
+    class Clock = steady_clock,
+    class Duration = typename Clock::duration>
 struct TryWriteUntilCaller : public WriteMethodCaller<Q> {
   const Duration duration_;
   explicit TryWriteUntilCaller(Duration&& duration) : duration_(duration) {}
@@ -482,18 +483,16 @@ void runMtProdConsDeterministic(long seed) {
   // we use the Bench method, but perf results are meaningless under DSched
   DSched sched(DSched::uniform(seed));
 
-  vector<unique_ptr<WriteMethodCaller<MPMCQueue<int, DeterministicAtomic,
-                                                Dynamic>>>> callers;
-  callers.emplace_back(make_unique<BlockingWriteCaller<MPMCQueue<int,
-                       DeterministicAtomic, Dynamic>>>());
-  callers.emplace_back(make_unique<WriteIfNotFullCaller<MPMCQueue<int,
-                       DeterministicAtomic, Dynamic>>>());
-  callers.emplace_back(make_unique<WriteCaller<MPMCQueue<int,
-                       DeterministicAtomic, Dynamic>>>());
-  callers.emplace_back(make_unique<TryWriteUntilCaller<MPMCQueue<int,
-                       DeterministicAtomic, Dynamic>>>(milliseconds(1)));
-  callers.emplace_back(make_unique<TryWriteUntilCaller<MPMCQueue<int,
-                       DeterministicAtomic, Dynamic>>>(seconds(2)));
+  using QueueType = MPMCQueue<int, DeterministicAtomic, Dynamic>;
+
+  vector<unique_ptr<WriteMethodCaller<QueueType>>> callers;
+  callers.emplace_back(std::make_unique<BlockingWriteCaller<QueueType>>());
+  callers.emplace_back(std::make_unique<WriteIfNotFullCaller<QueueType>>());
+  callers.emplace_back(std::make_unique<WriteCaller<QueueType>>());
+  callers.emplace_back(
+      std::make_unique<TryWriteUntilCaller<QueueType>>(milliseconds(1)));
+  callers.emplace_back(
+      std::make_unique<TryWriteUntilCaller<QueueType>>(seconds(2)));
   size_t cap;
 
   for (const auto& caller : callers) {
@@ -562,18 +561,16 @@ void runMtProdConsDeterministicDynamic(
   // we use the Bench method, but perf results are meaningless under DSched
   DSched sched(DSched::uniform(seed));
 
-  vector<unique_ptr<WriteMethodCaller<MPMCQueue<int, DeterministicAtomic,
-                                                true>>>> callers;
-  callers.emplace_back(make_unique<BlockingWriteCaller<MPMCQueue<int,
-                       DeterministicAtomic, true>>>());
-  callers.emplace_back(make_unique<WriteIfNotFullCaller<MPMCQueue<int,
-                       DeterministicAtomic, true>>>());
-  callers.emplace_back(make_unique<WriteCaller<MPMCQueue<int,
-                       DeterministicAtomic, true>>>());
-  callers.emplace_back(make_unique<TryWriteUntilCaller<MPMCQueue<int,
-                       DeterministicAtomic, true>>>(milliseconds(1)));
-  callers.emplace_back(make_unique<TryWriteUntilCaller<MPMCQueue<int,
-                       DeterministicAtomic, true>>>(seconds(2)));
+  using QueueType = MPMCQueue<int, DeterministicAtomic, true>;
+
+  vector<unique_ptr<WriteMethodCaller<QueueType>>> callers;
+  callers.emplace_back(std::make_unique<BlockingWriteCaller<QueueType>>());
+  callers.emplace_back(std::make_unique<WriteIfNotFullCaller<QueueType>>());
+  callers.emplace_back(std::make_unique<WriteCaller<QueueType>>());
+  callers.emplace_back(
+      std::make_unique<TryWriteUntilCaller<QueueType>>(milliseconds(1)));
+  callers.emplace_back(
+      std::make_unique<TryWriteUntilCaller<QueueType>>(seconds(2)));
 
   for (const auto& caller : callers) {
     LOG(INFO) <<
@@ -628,39 +625,29 @@ TEST(MPMCQueue, mt_prod_cons_deterministic_dynamic_with_arguments) {
 
 template <bool Dynamic = false>
 void runMtProdCons() {
+  using QueueType = MPMCQueue<int, std::atomic, Dynamic>;
+
   int n = 100000;
   setFromEnv(n, "NUM_OPS");
-  vector<unique_ptr<WriteMethodCaller<MPMCQueue<int, std::atomic, Dynamic>>>>
+  vector<unique_ptr<WriteMethodCaller<QueueType>>>
     callers;
-  callers.emplace_back(make_unique<BlockingWriteCaller<MPMCQueue<int,
-                       std::atomic, Dynamic>>>());
-  callers.emplace_back(make_unique<WriteIfNotFullCaller<MPMCQueue<int,
-                       std::atomic, Dynamic>>>());
-  callers.emplace_back(make_unique<WriteCaller<MPMCQueue<int, std::atomic,
-                       Dynamic>>>());
-  callers.emplace_back(make_unique<TryWriteUntilCaller<MPMCQueue<int,
-                       std::atomic, Dynamic>>>(milliseconds(1)));
-  callers.emplace_back(make_unique<TryWriteUntilCaller<MPMCQueue<int,
-                       std::atomic, Dynamic>>>(seconds(2)));
+  callers.emplace_back(std::make_unique<BlockingWriteCaller<QueueType>>());
+  callers.emplace_back(std::make_unique<WriteIfNotFullCaller<QueueType>>());
+  callers.emplace_back(std::make_unique<WriteCaller<QueueType>>());
+  callers.emplace_back(
+      std::make_unique<TryWriteUntilCaller<QueueType>>(milliseconds(1)));
+  callers.emplace_back(
+      std::make_unique<TryWriteUntilCaller<QueueType>>(seconds(2)));
   for (const auto& caller : callers) {
-    LOG(INFO) << PC_BENCH((MPMCQueue<int, std::atomic, Dynamic>(10)),
-                          1, 1, n, *caller);
-    LOG(INFO) << PC_BENCH((MPMCQueue<int, std::atomic, Dynamic>(10)),
-                          10, 1, n, *caller);
-    LOG(INFO) << PC_BENCH((MPMCQueue<int, std::atomic, Dynamic>(10)),
-                          1, 10, n, *caller);
-    LOG(INFO) << PC_BENCH((MPMCQueue<int, std::atomic, Dynamic>(10)),
-                          10, 10, n, *caller);
-    LOG(INFO) << PC_BENCH((MPMCQueue<int, std::atomic, Dynamic>(10000)),
-                          1, 1, n, *caller);
-    LOG(INFO) << PC_BENCH((MPMCQueue<int, std::atomic, Dynamic>(10000)),
-                          10, 1, n, *caller);
-    LOG(INFO) << PC_BENCH((MPMCQueue<int, std::atomic, Dynamic>(10000)),
-                          1, 10, n, *caller);
-    LOG(INFO) << PC_BENCH((MPMCQueue<int, std::atomic, Dynamic>(10000)),
-                          10, 10, n, *caller);
-    LOG(INFO) << PC_BENCH((MPMCQueue<int, std::atomic, Dynamic>(100000)),
-                          32, 100, n, *caller);
+    LOG(INFO) << PC_BENCH((QueueType(10)), 1, 1, n, *caller);
+    LOG(INFO) << PC_BENCH((QueueType(10)), 10, 1, n, *caller);
+    LOG(INFO) << PC_BENCH((QueueType(10)), 1, 10, n, *caller);
+    LOG(INFO) << PC_BENCH((QueueType(10)), 10, 10, n, *caller);
+    LOG(INFO) << PC_BENCH((QueueType(10000)), 1, 1, n, *caller);
+    LOG(INFO) << PC_BENCH((QueueType(10000)), 10, 1, n, *caller);
+    LOG(INFO) << PC_BENCH((QueueType(10000)), 1, 10, n, *caller);
+    LOG(INFO) << PC_BENCH((QueueType(10000)), 10, 10, n, *caller);
+    LOG(INFO) << PC_BENCH((QueueType(100000)), 32, 100, n, *caller);
   }
 }
 
@@ -674,38 +661,27 @@ TEST(MPMCQueue, mt_prod_cons_dynamic) {
 
 template <bool Dynamic = false>
 void runMtProdConsEmulatedFutex() {
+  using QueueType = MPMCQueue<int, EmulatedFutexAtomic, Dynamic>;
+
   int n = 100000;
-  vector<unique_ptr<WriteMethodCaller<MPMCQueue<int, EmulatedFutexAtomic,
-                                                Dynamic>>>> callers;
-  callers.emplace_back(make_unique<BlockingWriteCaller<MPMCQueue<int,
-                       EmulatedFutexAtomic, Dynamic>>>());
-  callers.emplace_back(make_unique<WriteIfNotFullCaller<MPMCQueue<int,
-                       EmulatedFutexAtomic, Dynamic>>>());
-  callers.emplace_back(make_unique<WriteCaller<MPMCQueue<int,
-                       EmulatedFutexAtomic, Dynamic>>>());
-  callers.emplace_back(make_unique<TryWriteUntilCaller<MPMCQueue<int,
-                       EmulatedFutexAtomic, Dynamic>>>(milliseconds(1)));
-  callers.emplace_back(make_unique<TryWriteUntilCaller<MPMCQueue<int,
-                       EmulatedFutexAtomic, Dynamic>>>(seconds(2)));
+  vector<unique_ptr<WriteMethodCaller<QueueType>>> callers;
+  callers.emplace_back(std::make_unique<BlockingWriteCaller<QueueType>>());
+  callers.emplace_back(std::make_unique<WriteIfNotFullCaller<QueueType>>());
+  callers.emplace_back(std::make_unique<WriteCaller<QueueType>>());
+  callers.emplace_back(
+      std::make_unique<TryWriteUntilCaller<QueueType>>(milliseconds(1)));
+  callers.emplace_back(
+      std::make_unique<TryWriteUntilCaller<QueueType>>(seconds(2)));
   for (const auto& caller : callers) {
-    LOG(INFO) << PC_BENCH(
-      (MPMCQueue<int, EmulatedFutexAtomic, Dynamic>(10)), 1, 1, n, *caller);
-    LOG(INFO) << PC_BENCH(
-      (MPMCQueue<int, EmulatedFutexAtomic, Dynamic>(10)), 10, 1, n, *caller);
-    LOG(INFO) << PC_BENCH(
-      (MPMCQueue<int, EmulatedFutexAtomic, Dynamic>(10)), 1, 10, n, *caller);
-    LOG(INFO) << PC_BENCH(
-      (MPMCQueue<int, EmulatedFutexAtomic, Dynamic>(10)), 10, 10, n, *caller);
-    LOG(INFO) << PC_BENCH(
-      (MPMCQueue<int, EmulatedFutexAtomic, Dynamic>(10000)), 1, 1, n, *caller);
-    LOG(INFO) << PC_BENCH(
-      (MPMCQueue<int, EmulatedFutexAtomic, Dynamic>(10000)), 10, 1, n, *caller);
-    LOG(INFO) << PC_BENCH(
-      (MPMCQueue<int, EmulatedFutexAtomic, Dynamic>(10000)), 1, 10, n, *caller);
-    LOG(INFO) << PC_BENCH((MPMCQueue<int, EmulatedFutexAtomic, Dynamic>
-                           (10000)), 10, 10, n, *caller);
-    LOG(INFO) << PC_BENCH((MPMCQueue<int, EmulatedFutexAtomic, Dynamic>
-                           (100000)), 32, 100, n, *caller);
+    LOG(INFO) << PC_BENCH((QueueType(10)), 1, 1, n, *caller);
+    LOG(INFO) << PC_BENCH((QueueType(10)), 10, 1, n, *caller);
+    LOG(INFO) << PC_BENCH((QueueType(10)), 1, 10, n, *caller);
+    LOG(INFO) << PC_BENCH((QueueType(10)), 10, 10, n, *caller);
+    LOG(INFO) << PC_BENCH((QueueType(10000)), 1, 1, n, *caller);
+    LOG(INFO) << PC_BENCH((QueueType(10000)), 10, 1, n, *caller);
+    LOG(INFO) << PC_BENCH((QueueType(10000)), 1, 10, n, *caller);
+    LOG(INFO) << PC_BENCH((QueueType(10000)), 10, 10, n, *caller);
+    LOG(INFO) << PC_BENCH((QueueType(100000)), 32, 100, n, *caller);
   }
 }
 
@@ -763,7 +739,7 @@ uint64_t runNeverFailTest(int numThreads, int numOps) {
   return nowMicro() - beginMicro;
 }
 
-template <template<typename> class Atom, bool Dynamic = false>
+template <template <typename> class Atom, bool Dynamic = false>
 void runMtNeverFail(std::vector<int>& nts, int n) {
   for (int nt : nts) {
     uint64_t elapsed = runNeverFailTest<Atom, Dynamic>(nt, n);
@@ -789,7 +765,7 @@ TEST(MPMCQueue, mt_never_fail_emulated_futex) {
   runMtNeverFail<EmulatedFutexAtomic>(nts, n);
 }
 
-template<bool Dynamic = false>
+template <bool Dynamic = false>
 void runMtNeverFailDeterministic(std::vector<int>& nts, int n, long seed) {
   LOG(INFO) << "using seed " << seed;
   for (int nt : nts) {

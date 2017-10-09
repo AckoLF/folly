@@ -13,7 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 #include <atomic>
+
 #include <glog/logging.h>
 
 #include <folly/Benchmark.h>
@@ -44,8 +46,6 @@ static vector<fbstring> strings =
   | as<vector>();
 
 auto square = [](int x) { return x * x; };
-auto add = [](int a, int b) { return a + b; };
-auto multiply = [](int a, int b) { return a * b; };
 
 BENCHMARK(Sum_Basic_NoGen, iters) {
   int limit = testSize.load();
@@ -174,7 +174,7 @@ BENCHMARK_RELATIVE(Fib_Sum_Gen, iters) {
 }
 
 struct FibYielder {
-  template<class Yield>
+  template <class Yield>
   void operator()(Yield&& yield) const {
     int a = 0;
     int b = 1;

@@ -14,12 +14,12 @@
  * limitations under the License.
  */
 
-#include <folly/futures/Future.h>
-#include <folly/Unit.h>
-#include <folly/Memory.h>
-#include <folly/Executor.h>
-#include <folly/dynamic.h>
 #include <folly/Baton.h>
+#include <folly/Executor.h>
+#include <folly/Memory.h>
+#include <folly/Unit.h>
+#include <folly/dynamic.h>
+#include <folly/futures/Future.h>
 #include <folly/portability/GTest.h>
 
 #include <algorithm>
@@ -39,6 +39,11 @@ typedef FutureException eggs_t;
 static eggs_t eggs("eggs");
 
 // Future
+
+TEST(Future, makeEmpty) {
+  auto f = Future<int>::makeEmpty();
+  EXPECT_THROW(f.isReady(), NoState);
+}
 
 TEST(Future, futureDefaultCtor) {
   Future<Unit>();
@@ -74,6 +79,15 @@ TEST(Future, makeFutureWithUnit) {
   int count = 0;
   Future<Unit> fu = makeFutureWith([&] { count++; });
   EXPECT_EQ(1, count);
+}
+
+namespace {
+Future<int> onErrorHelperEggs(const eggs_t&) {
+  return makeFuture(10);
+}
+Future<int> onErrorHelperGeneric(const std::exception&) {
+  return makeFuture(20);
+}
 }
 
 TEST(Future, onError) {
@@ -189,6 +203,28 @@ TEST(Future, onError) {
                  });
     EXPECT_FLAG();
     EXPECT_NO_THROW(f.value());
+  }
+
+  // Function pointer
+  {
+    auto f = makeFuture()
+                 .then([]() -> int { throw eggs; })
+                 .onError(onErrorHelperEggs)
+                 .onError(onErrorHelperGeneric);
+    EXPECT_EQ(10, f.value());
+  }
+  {
+    auto f = makeFuture()
+                 .then([]() -> int { throw std::runtime_error("test"); })
+                 .onError(onErrorHelperEggs)
+                 .onError(onErrorHelperGeneric);
+    EXPECT_EQ(20, f.value());
+  }
+  {
+    auto f = makeFuture()
+                 .then([]() -> int { throw std::runtime_error("test"); })
+                 .onError(onErrorHelperEggs);
+    EXPECT_THROW(f.value(), std::runtime_error);
   }
 
   // No throw
@@ -612,13 +648,16 @@ TEST(Future, finishBigLambda) {
   // bulk_data, to be captured in the lambda passed to Future::then.
   // This is meant to force that the lambda can't be stored inside
   // the Future object.
-  std::array<char, sizeof(detail::Core<int>)> bulk_data = {{0}};
+  std::array<char, sizeof(futures::detail::Core<int>)> bulk_data = {{0}};
 
   // suppress gcc warning about bulk_data not being used
   EXPECT_EQ(bulk_data[0], 0);
 
   Promise<int> p;
-  auto f = p.getFuture().then([x, bulk_data](Try<int>&& t) { *x = t.value(); });
+  auto f = p.getFuture().then([x, bulk_data](Try<int>&& t) {
+    (void)bulk_data;
+    *x = t.value();
+  });
 
   // The callback hasn't executed
   EXPECT_EQ(0, *x);
@@ -722,8 +761,8 @@ TEST(Future, detachRace) {
   // slow test so I won't do that but if it ever fails, take it seriously, and
   // run the test binary with "--gtest_repeat=10000 --gtest_filter=*detachRace"
   // (Don't forget to enable ASAN)
-  auto p = folly::make_unique<Promise<bool>>();
-  auto f = folly::make_unique<Future<bool>>(p->getFuture());
+  auto p = std::make_unique<Promise<bool>>();
+  auto f = std::make_unique<Future<bool>>(p->getFuture());
   folly::Baton<> baton;
   std::thread t1([&]{
     baton.post();
@@ -769,6 +808,11 @@ TEST(Future, ImplicitConstructor) {
   // Unfortunately, the C++ standard does not allow the
   // following implicit conversion to work:
   //auto f2 = []() -> Future<Unit> { }();
+}
+
+TEST(Future, InPlaceConstructor) {
+  auto f = Future<std::pair<int, double>>(in_place, 5, 3.2);
+  EXPECT_EQ(5, f.value().first);
 }
 
 TEST(Future, thenDynamic) {
@@ -818,7 +862,7 @@ TEST(Future, RequestContext) {
   {
     folly::RequestContextScopeGuard rctx;
     RequestContext::get()->setContextData(
-        "key", folly::make_unique<MyRequestData>(true));
+        "key", std::make_unique<MyRequestData>(true));
     auto checker = [](int lineno) {
       return [lineno](Try<int>&& /* t */) {
         auto d = static_cast<MyRequestData*>(
@@ -891,4 +935,36 @@ TEST(Future, invokeCallbackReturningFutureAsRvalue) {
   EXPECT_EQ(103, makeFuture<int>(100).then(foo).value());
   EXPECT_EQ(203, makeFuture<int>(200).then(cfoo).value());
   EXPECT_EQ(303, makeFuture<int>(300).then(Foo()).value());
+}
+
+TEST(Future, futureWithinCtxCleanedUpWhenTaskFinishedInTime) {
+  // Used to track the use_count of callbackInput even outside of its scope
+  std::weak_ptr<int> target;
+  {
+    Promise<std::shared_ptr<int>> promise;
+    auto input = std::make_shared<int>(1);
+    auto longEnough = std::chrono::milliseconds(1000);
+
+    promise.getFuture()
+        .within(longEnough)
+        .then([&target](
+                  folly::Try<std::shared_ptr<int>>&& callbackInput) mutable {
+          target = callbackInput.value();
+        });
+    promise.setValue(input);
+  }
+  // After promise's life cycle is finished, make sure no one is holding the
+  // input anymore, in other words, ctx should have been cleaned up.
+  EXPECT_EQ(0, target.use_count());
+}
+
+TEST(Future, futureWithinNoValueReferenceWhenTimeOut) {
+  Promise<std::shared_ptr<int>> promise;
+  auto veryShort = std::chrono::milliseconds(1);
+
+  promise.getFuture().within(veryShort).then(
+      [](folly::Try<std::shared_ptr<int>>&& callbackInput) {
+        // Timeout is fired. Verify callbackInput is not referenced
+        EXPECT_EQ(0, callbackInput.value().use_count());
+      });
 }

@@ -17,18 +17,20 @@
 #pragma once
 
 #include <functional>
+
 #include <boost/iterator/iterator_adaptor.hpp>
 #include <boost/iterator/iterator_facade.hpp>
-#include <folly/Likely.h>
+
 #include <folly/Conv.h>
 #include <folly/Format.h>
+#include <folly/Likely.h>
 
 //////////////////////////////////////////////////////////////////////
 
 namespace std {
 
-template<>
-struct hash< ::folly::dynamic> {
+template <>
+struct hash<::folly::dynamic> {
   size_t operator()(::folly::dynamic const& d) const {
     return d.hash();
   }
@@ -44,7 +46,7 @@ struct hash< ::folly::dynamic> {
   do {                                \
     switch ((type)) {                 \
       case NULLT:                     \
-        apply(void*);                 \
+        apply(std::nullptr_t);        \
         break;                        \
       case ARRAY:                     \
         apply(Array);                 \
@@ -76,11 +78,20 @@ namespace folly {
 
 struct TypeError : std::runtime_error {
   explicit TypeError(const std::string& expected, dynamic::Type actual);
-  explicit TypeError(const std::string& expected,
-    dynamic::Type actual1, dynamic::Type actual2);
-  ~TypeError();
+  explicit TypeError(
+      const std::string& expected,
+      dynamic::Type actual1,
+      dynamic::Type actual2);
+  ~TypeError() override;
 };
 
+[[noreturn]] void throwTypeError_(
+    std::string const& expected,
+    dynamic::Type actual);
+[[noreturn]] void throwTypeError_(
+    std::string const& expected,
+    dynamic::Type actual1,
+    dynamic::Type actual2);
 
 //////////////////////////////////////////////////////////////////////
 
@@ -89,7 +100,7 @@ namespace detail {
   // This helper is used in destroy() to be able to run destructors on
   // types like "int64_t" without a compiler error.
   struct Destroy {
-    template<class T> static void destroy(T* t) { t->~T(); }
+    template <class T> static void destroy(T* t) { t->~T(); }
   };
 
   /*
@@ -97,10 +108,10 @@ namespace detail {
    * numbers.  Just promotes to double when one of the arguments is
    * double, or throws if either is not a numeric type.
    */
-  template<template<class> class Op>
+  template <template <class> class Op>
   dynamic numericOp(dynamic const& a, dynamic const& b) {
     if (!a.isNumber() || !b.isNumber()) {
-      throw TypeError("numeric", a.type(), b.type());
+      throwTypeError_("numeric", a.type(), b.type());
     }
     if (a.type() != b.type()) {
       auto& integ  = a.isInt() ? a : b;
@@ -156,7 +167,7 @@ struct dynamic::ObjectMaker {
     return std::move(*this);
   }
 
-private:
+ private:
   dynamic val_;
 };
 
@@ -310,6 +321,9 @@ inline dynamic::~dynamic() noexcept { destroy(); }
 template <class T>
 struct dynamic::NumericTypeHelper<
     T, typename std::enable_if<std::is_integral<T>::value>::type> {
+  static_assert(
+      !kIsObjC || sizeof(T) > sizeof(char),
+      "char-sized types are ambiguous in objc; cast to bool or wider type");
   using type = int64_t;
 };
 template <>
@@ -325,7 +339,9 @@ struct dynamic::NumericTypeHelper<double> {
   using type = double;
 };
 
-template<class T, class NumericType /* = typename NumericTypeHelper<T>::type */>
+template <
+    class T,
+    class NumericType /* = typename NumericTypeHelper<T>::type */>
 dynamic::dynamic(T t) {
   type_ = TypeInfo<NumericType>::type;
   new (getAddress<NumericType>()) NumericType(NumericType(t));
@@ -416,7 +432,7 @@ inline bool dynamic::isInt() const {
   return get_nothrow<int64_t>() != nullptr;
 }
 inline bool dynamic::isNull() const {
-  return get_nothrow<void*>() != nullptr;
+  return get_nothrow<std::nullptr_t>() != nullptr;
 }
 inline bool dynamic::isNumber() const {
   return isInt() || isDouble();
@@ -470,15 +486,21 @@ inline StringPiece dynamic::stringPiece() const {
   return get<std::string>();
 }
 
-template<class T>
+template <class T>
 struct dynamic::CompareOp {
   static bool comp(T const& a, T const& b) { return a < b; }
 };
-template<>
+template <>
 struct dynamic::CompareOp<dynamic::ObjectImpl> {
   static bool comp(ObjectImpl const&, ObjectImpl const&) {
     // This code never executes; it is just here for the compiler.
     return false;
+  }
+};
+template <>
+struct dynamic::CompareOp<std::nullptr_t> {
+  static bool comp(std::nullptr_t const&, std::nullptr_t const&) {
+    return true;
   }
 };
 
@@ -506,13 +528,13 @@ inline dynamic& dynamic::operator/=(dynamic const& o) {
   return *this;
 }
 
-#define FB_DYNAMIC_INTEGER_OP(op)                           \
-  inline dynamic& dynamic::operator op(dynamic const& o) {  \
-    if (!isInt() || !o.isInt()) {                           \
-      throw TypeError("int64", type(), o.type());           \
-    }                                                       \
-    *getAddress<int64_t>() op o.asInt();                    \
-    return *this;                                           \
+#define FB_DYNAMIC_INTEGER_OP(op)                          \
+  inline dynamic& dynamic::operator op(dynamic const& o) { \
+    if (!isInt() || !o.isInt()) {                          \
+      throwTypeError_("int64", type(), o.type());          \
+    }                                                      \
+    *getAddress<int64_t>() op o.asInt();                   \
+    return *this;                                          \
   }
 
 FB_DYNAMIC_INTEGER_OP(%=)
@@ -540,19 +562,19 @@ inline dynamic&& dynamic::operator[](dynamic const& idx) && {
   return std::move((*this)[idx]);
 }
 
-template<class K, class V> inline dynamic& dynamic::setDefault(K&& k, V&& v) {
+template <class K, class V> inline dynamic& dynamic::setDefault(K&& k, V&& v) {
   auto& obj = get<ObjectImpl>();
   return obj.insert(std::make_pair(std::forward<K>(k),
                                    std::forward<V>(v))).first->second;
 }
 
-template<class K> inline dynamic& dynamic::setDefault(K&& k, dynamic&& v) {
+template <class K> inline dynamic& dynamic::setDefault(K&& k, dynamic&& v) {
   auto& obj = get<ObjectImpl>();
   return obj.insert(std::make_pair(std::forward<K>(k),
                                    std::move(v))).first->second;
 }
 
-template<class K> inline dynamic& dynamic::setDefault(K&& k, const dynamic& v) {
+template <class K> inline dynamic& dynamic::setDefault(K&& k, const dynamic& v) {
   auto& obj = get<ObjectImpl>();
   return obj.insert(std::make_pair(std::forward<K>(k), v)).first->second;
 }
@@ -587,7 +609,7 @@ inline dynamic::item_iterator dynamic::find(dynamic const& key) {
   return get<ObjectImpl>().find(key);
 }
 
-template<class K, class V> inline void dynamic::insert(K&& key, V&& val) {
+template <class K, class V> inline void dynamic::insert(K&& key, V&& val) {
   auto& obj = get<ObjectImpl>();
   auto rv = obj.insert({ std::forward<K>(key), nullptr });
   rv.first->second = std::forward<V>(val);
@@ -595,7 +617,7 @@ template<class K, class V> inline void dynamic::insert(K&& key, V&& val) {
 
 inline void dynamic::update(const dynamic& mergeObj) {
   if (!isObject() || !mergeObj.isObject()) {
-    throw TypeError("object", type(), mergeObj.type());
+    throwTypeError_("object", type(), mergeObj.type());
   }
 
   for (const auto& pair : mergeObj.items()) {
@@ -605,7 +627,7 @@ inline void dynamic::update(const dynamic& mergeObj) {
 
 inline void dynamic::update_missing(const dynamic& mergeObj1) {
   if (!isObject() || !mergeObj1.isObject()) {
-    throw TypeError("object", type(), mergeObj1.type());
+    throwTypeError_("object", type(), mergeObj1.type());
   }
 
   // Only add if not already there
@@ -705,7 +727,7 @@ inline dynamic::dynamic(Array&& r) : type_(ARRAY) {
   }; \
   //
 
-FOLLY_DYNAMIC_DEC_TYPEINFO(void*,               "null",    dynamic::NULLT)
+FOLLY_DYNAMIC_DEC_TYPEINFO(std::nullptr_t,      "null",    dynamic::NULLT)
 FOLLY_DYNAMIC_DEC_TYPEINFO(bool,                "boolean", dynamic::BOOL)
 FOLLY_DYNAMIC_DEC_TYPEINFO(std::string,         "string",  dynamic::STRING)
 FOLLY_DYNAMIC_DEC_TYPEINFO(dynamic::Array,      "array",   dynamic::ARRAY)
@@ -715,7 +737,7 @@ FOLLY_DYNAMIC_DEC_TYPEINFO(dynamic::ObjectImpl, "object",  dynamic::OBJECT)
 
 #undef FOLLY_DYNAMIC_DEC_TYPEINFO
 
-template<class T>
+template <class T>
 T dynamic::asImpl() const {
   switch (type()) {
   case INT64:    return to<T>(*get_nothrow<int64_t>());
@@ -724,12 +746,12 @@ T dynamic::asImpl() const {
   case STRING:
     return to<T>(*get_nothrow<std::string>());
   default:
-    throw TypeError("int/double/bool/string", type());
+    throwTypeError_("int/double/bool/string", type());
   }
 }
 
 // Return a T* to our type, or null if we're not that type.
-template<class T>
+template <class T>
 T* dynamic::get_nothrow() & noexcept {
   if (type_ != TypeInfo<T>::type) {
     return nullptr;
@@ -737,37 +759,37 @@ T* dynamic::get_nothrow() & noexcept {
   return getAddress<T>();
 }
 
-template<class T>
+template <class T>
 T const* dynamic::get_nothrow() const& noexcept {
   return const_cast<dynamic*>(this)->get_nothrow<T>();
 }
 
 // Return T* for where we can put a T, without type checking.  (Memory
 // might be uninitialized, even.)
-template<class T>
+template <class T>
 T* dynamic::getAddress() noexcept {
   return GetAddrImpl<T>::get(u_);
 }
 
-template<class T>
+template <class T>
 T const* dynamic::getAddress() const noexcept {
   return const_cast<dynamic*>(this)->getAddress<T>();
 }
 
-template<class T> struct dynamic::GetAddrImpl {};
-template<> struct dynamic::GetAddrImpl<void*> {
-  static void** get(Data& d) noexcept { return &d.nul; }
+template <class T> struct dynamic::GetAddrImpl {};
+template <> struct dynamic::GetAddrImpl<std::nullptr_t> {
+  static std::nullptr_t* get(Data& d) noexcept { return &d.nul; }
 };
-template<> struct dynamic::GetAddrImpl<dynamic::Array> {
+template <> struct dynamic::GetAddrImpl<dynamic::Array> {
   static Array* get(Data& d) noexcept { return &d.array; }
 };
-template<> struct dynamic::GetAddrImpl<bool> {
+template <> struct dynamic::GetAddrImpl<bool> {
   static bool* get(Data& d) noexcept { return &d.boolean; }
 };
-template<> struct dynamic::GetAddrImpl<int64_t> {
+template <> struct dynamic::GetAddrImpl<int64_t> {
   static int64_t* get(Data& d) noexcept { return &d.integer; }
 };
-template<> struct dynamic::GetAddrImpl<double> {
+template <> struct dynamic::GetAddrImpl<double> {
   static double* get(Data& d) noexcept { return &d.doubl; }
 };
 template <>
@@ -776,7 +798,7 @@ struct dynamic::GetAddrImpl<std::string> {
     return &d.string;
   }
 };
-template<> struct dynamic::GetAddrImpl<dynamic::ObjectImpl> {
+template <> struct dynamic::GetAddrImpl<dynamic::ObjectImpl> {
   static_assert(sizeof(ObjectImpl) <= sizeof(Data::objectBuffer),
     "In your implementation, std::unordered_map<> apparently takes different"
     " amount of space depending on its template parameters.  This is "
@@ -788,15 +810,15 @@ template<> struct dynamic::GetAddrImpl<dynamic::ObjectImpl> {
   }
 };
 
-template<class T>
+template <class T>
 T& dynamic::get() {
   if (auto* p = get_nothrow<T>()) {
     return *p;
   }
-  throw TypeError(TypeInfo<T>::name, type());
+  throwTypeError_(TypeInfo<T>::name, type());
 }
 
-template<class T>
+template <class T>
 T const& dynamic::get() const {
   return const_cast<dynamic*>(this)->get<T>();
 }
@@ -807,7 +829,7 @@ T const& dynamic::get() const {
  * Helper for implementing operator<<.  Throws if the type shouldn't
  * support it.
  */
-template<class T>
+template <class T>
 struct dynamic::PrintImpl {
   static void print(dynamic const&, std::ostream& out, T const& t) {
     out << t;
@@ -815,15 +837,14 @@ struct dynamic::PrintImpl {
 };
 // Otherwise, null, being (void*)0, would print as 0.
 template <>
-struct dynamic::PrintImpl<void*> {
+struct dynamic::PrintImpl<std::nullptr_t> {
   static void print(dynamic const& /* d */,
                     std::ostream& out,
-                    void* const& nul) {
-    DCHECK_EQ((void*)0, nul);
+                    std::nullptr_t const&) {
     out << "null";
   }
 };
-template<>
+template <>
 struct dynamic::PrintImpl<dynamic::ObjectImpl> {
   static void print(dynamic const& d,
                     std::ostream& out,
@@ -831,7 +852,7 @@ struct dynamic::PrintImpl<dynamic::ObjectImpl> {
     d.print_as_pseudo_json(out);
   }
 };
-template<>
+template <>
 struct dynamic::PrintImpl<dynamic::Array> {
   static void print(dynamic const& d,
                     std::ostream& out,
@@ -935,6 +956,6 @@ class FormatValue<detail::DefaultValueWrapper<dynamic, V>> {
   const detail::DefaultValueWrapper<dynamic, V>& val_;
 };
 
-}  // namespaces
+} // namespace folly
 
 #undef FB_DYNAMIC_APPLY

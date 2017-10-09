@@ -15,12 +15,15 @@
  */
 #pragma once
 
+#include <folly/experimental/hazptr/debug.h>
+
 ////////////////////////////////////////////////////////////////////////////////
 /// Disclaimer: This is intended only as a partial stand-in for
 /// std::pmr::memory_resource (C++17) as needed for developing a
 /// hazptr prototype.
 ////////////////////////////////////////////////////////////////////////////////
-#include <cstddef>
+
+#include <folly/Portability.h>
 #include <memory>
 
 namespace folly {
@@ -31,63 +34,16 @@ class memory_resource {
   virtual ~memory_resource() = default;
   virtual void* allocate(
       const size_t bytes,
-      const size_t alignment = alignof(std::max_align_t)) = 0;
+      const size_t alignment = folly::max_align_v) = 0;
   virtual void deallocate(
       void* p,
       const size_t bytes,
-      const size_t alignment = alignof(std::max_align_t)) = 0;
+      const size_t alignment = folly::max_align_v) = 0;
 };
 
 memory_resource* get_default_resource();
 void set_default_resource(memory_resource*);
 memory_resource* new_delete_resource();
 
-////////////////////////////////////////////////////////////////////////////////
-/// Implementation
-////////////////////////////////////////////////////////////////////////////////
-#include <folly/experimental/hazptr/debug.h>
-
-inline memory_resource** default_mr_ptr() {
-  /* library-local */ static memory_resource* default_mr =
-      new_delete_resource();
-  DEBUG_PRINT(&default_mr << " " << default_mr);
-  return &default_mr;
-}
-
-inline memory_resource* get_default_resource() {
-  DEBUG_PRINT("");
-  return *default_mr_ptr();
-}
-
-inline void set_default_resource(memory_resource* mr) {
-  DEBUG_PRINT("");
-  *default_mr_ptr() = mr;
-}
-
-inline memory_resource* new_delete_resource() {
-  class new_delete : public memory_resource {
-   public:
-    void* allocate(
-        const size_t bytes,
-        const size_t alignment = alignof(std::max_align_t)) {
-      (void)alignment;
-      void* p = static_cast<void*>(new char[bytes]);
-      DEBUG_PRINT(this << " " << p << " " << bytes);
-      return p;
-    }
-    void deallocate(
-        void* p,
-        const size_t bytes,
-        const size_t alignment = alignof(std::max_align_t)) {
-      (void)alignment;
-      (void)bytes;
-      DEBUG_PRINT(p << " " << bytes);
-      delete[] static_cast<char*>(p);
-    }
-  };
-  static new_delete mr;
-  return &mr;
-}
-
-} // namespace folly {
-} // namespace hazptr {
+} // namespace folly
+} // namespace hazptr

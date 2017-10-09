@@ -54,6 +54,10 @@ typedef std::array<uint8_t, 4> ByteArray4;
  */
 class IPAddressV4 {
  public:
+  // Max size of std::string returned by toFullyQualified.
+  static constexpr size_t kMaxToFullyQualifiedSize =
+      4 /*words*/ * 3 /*max chars per word*/ + 3 /*separators*/;
+
   // returns true iff the input string can be parsed as an ipv4-address
   static bool validate(StringPiece ip);
 
@@ -76,8 +80,15 @@ class IPAddressV4 {
    * Returns the address as a Range.
    */
   ByteRange toBinary() const {
-    return ByteRange((const unsigned char *) &addr_.inAddr_.s_addr, 4);
+    return ByteRange((const unsigned char*)&addr_.inAddr_.s_addr, 4);
   }
+
+  /**
+   * Create a new IPAddress instance from the in-addr.arpa representation.
+   * @throws IPAddressFormatException if the input is not a valid in-addr.arpa
+   * representation
+   */
+  static IPAddressV4 fromInverseArpaName(const std::string& arpaname);
 
   /**
    * Convert a IPv4 address string to a long in network byte order.
@@ -129,7 +140,9 @@ class IPAddressV4 {
    * @see IPAddress#bitCount
    * @returns 32
    */
-  static size_t bitCount() { return 32; }
+  static constexpr size_t bitCount() {
+    return 32;
+  }
 
   /**
    * @See IPAddress#toJson
@@ -183,8 +196,12 @@ class IPAddressV4 {
   // @see IPAddress#str
   std::string str() const;
 
+  std::string toInverseArpaName() const;
+
   // return underlying in_addr structure
-  in_addr toAddr() const { return addr_.inAddr_; }
+  in_addr toAddr() const {
+    return addr_.inAddr_;
+  }
 
   sockaddr_in toSockAddr() const {
     sockaddr_in addr;
@@ -201,10 +218,17 @@ class IPAddressV4 {
   }
 
   // @see IPAddress#toFullyQualified
-  std::string toFullyQualified() const { return str(); }
+  std::string toFullyQualified() const {
+    return str();
+  }
+
+  // @see IPAddress#toFullyQualifiedAppend
+  void toFullyQualifiedAppend(std::string& out) const;
 
   // @see IPAddress#version
-  uint8_t version() const { return 4; }
+  uint8_t version() const {
+    return 4;
+  }
 
   /**
    * Return the mask associated with the given number of bits.
@@ -222,38 +246,41 @@ class IPAddressV4 {
       const CIDRNetworkV4& one,
       const CIDRNetworkV4& two);
   // Number of bytes in the address representation.
-  static size_t byteCount() { return 4; }
-  //get nth most significant bit - 0 indexed
+  static size_t byteCount() {
+    return 4;
+  }
+  // get nth most significant bit - 0 indexed
   bool getNthMSBit(size_t bitIndex) const {
     return detail::getNthMSBitImpl(*this, bitIndex, AF_INET);
   }
-  //get nth most significant byte - 0 indexed
+  // get nth most significant byte - 0 indexed
   uint8_t getNthMSByte(size_t byteIndex) const;
-  //get nth bit - 0 indexed
+  // get nth bit - 0 indexed
   bool getNthLSBit(size_t bitIndex) const {
     return getNthMSBit(bitCount() - bitIndex - 1);
   }
-  //get nth byte - 0 indexed
+  // get nth byte - 0 indexed
   uint8_t getNthLSByte(size_t byteIndex) const {
     return getNthMSByte(byteCount() - byteIndex - 1);
   }
 
-  const unsigned char* bytes() const { return addr_.bytes_.data(); }
+  const unsigned char* bytes() const {
+    return addr_.bytes_.data();
+  }
 
  private:
   union AddressStorage {
-    static_assert(sizeof(in_addr) == sizeof(ByteArray4),
-                  "size of in_addr and ByteArray4 are different");
+    static_assert(
+        sizeof(in_addr) == sizeof(ByteArray4),
+        "size of in_addr and ByteArray4 are different");
     in_addr inAddr_;
     ByteArray4 bytes_;
     AddressStorage() {
       std::memset(this, 0, sizeof(AddressStorage));
     }
-    explicit AddressStorage(const ByteArray4 bytes): bytes_(bytes) {}
-    explicit AddressStorage(const in_addr addr): inAddr_(addr) {}
+    explicit AddressStorage(const ByteArray4 bytes) : bytes_(bytes) {}
+    explicit AddressStorage(const in_addr addr) : inAddr_(addr) {}
   } addr_;
-
-  static const std::array<ByteArray4, 33> masks_;
 
   /**
    * Set the current IPAddressV4 object to have the address specified by bytes.
@@ -294,13 +321,13 @@ inline bool operator>=(const IPAddressV4& a, const IPAddressV4& b) {
   return !(a < b);
 }
 
-}  // folly
+} // namespace folly
 
 namespace std {
-template<>
+template <>
 struct hash<folly::IPAddressV4> {
   size_t operator()(const folly::IPAddressV4 addr) const {
     return addr.hash();
   }
 };
-}  // std
+} // namespace std

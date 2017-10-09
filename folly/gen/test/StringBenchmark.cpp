@@ -13,7 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 #include <atomic>
+
 #include <glog/logging.h>
 
 #include <folly/Benchmark.h>
@@ -61,7 +63,7 @@ void initStringResplitterBenchmark() {
 
 size_t len(folly::StringPiece s) { return s.size(); }
 
-}  // namespace
+} // namespace
 
 BENCHMARK(StringResplitter_Big, iters) {
   size_t s = 0;

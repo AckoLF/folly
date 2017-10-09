@@ -16,7 +16,6 @@
 
 #include <folly/LifoSem.h>
 
-#include <semaphore.h>
 #include <thread>
 
 #include <folly/Benchmark.h>
@@ -24,6 +23,7 @@
 #include <folly/portability/Asm.h>
 #include <folly/portability/GFlags.h>
 #include <folly/portability/GTest.h>
+#include <folly/portability/Semaphore.h>
 #include <folly/test/DeterministicSchedule.h>
 
 using namespace folly;
@@ -227,7 +227,7 @@ TEST(LifoSem, shutdown_multi) {
       threads.push_back(DSched::thread([&]{
         try {
           a.wait();
-          EXPECT_TRUE(false);
+          ADD_FAILURE();
         } catch (ShutdownSemError&) {
           // expected
           EXPECT_TRUE(a.isShutdown());

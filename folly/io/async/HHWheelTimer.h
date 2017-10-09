@@ -54,7 +54,6 @@ namespace folly {
 class HHWheelTimer : private folly::AsyncTimeout,
                      public folly::DelayedDestruction {
  public:
-  // This type has always been a misnomer, because it is not a unique pointer.
   using UniquePtr = std::unique_ptr<HHWheelTimer, Destructor>;
   using SharedPtr = std::shared_ptr<HHWheelTimer>;
 
@@ -254,7 +253,7 @@ class HHWheelTimer : private folly::AsyncTimeout,
    * Use destroy() instead.  See the comments in DelayedDestruction for more
    * details.
    */
-  virtual ~HHWheelTimer();
+  ~HHWheelTimer() override;
 
  private:
   // Forbidden copy constructor and assignment operator
@@ -262,7 +261,7 @@ class HHWheelTimer : private folly::AsyncTimeout,
   HHWheelTimer& operator=(HHWheelTimer const &) = delete;
 
   // Methods inherited from AsyncTimeout
-  virtual void timeoutExpired() noexcept;
+  void timeoutExpired() noexcept override;
 
   std::chrono::milliseconds interval_;
   std::chrono::milliseconds defaultTimeout_;
@@ -299,4 +298,4 @@ class HHWheelTimer : private folly::AsyncTimeout,
   }
 };
 
-} // folly
+} // namespace folly

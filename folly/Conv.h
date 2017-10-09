@@ -400,7 +400,7 @@ void toAppend(char value, Tgt * result) {
   *result += value;
 }
 
-template<class T>
+template <class T>
 constexpr typename std::enable_if<
   std::is_same<T, char>::value,
   size_t>::type
@@ -435,7 +435,7 @@ typename std::enable_if<std::is_convertible<Src, const char*>::value, size_t>::
   return 0;
 }
 
-template<class Src>
+template <class Src>
 typename std::enable_if<
   (std::is_convertible<Src, folly::StringPiece>::value ||
   IsSomeString<Src>::value) &&
@@ -450,7 +450,7 @@ inline size_t estimateSpaceNeeded(std::nullptr_t /* value */) {
   return 0;
 }
 
-template<class Src>
+template <class Src>
 typename std::enable_if<
   std::is_pointer<Src>::value &&
   IsSomeString<std::remove_pointer<Src>>::value,
@@ -523,7 +523,7 @@ toAppend(unsigned __int128 value, Tgt * result) {
   result->append(buffer + p, buffer + sizeof(buffer));
 }
 
-template<class T>
+template <class T>
 constexpr typename std::enable_if<
   std::is_same<T, __int128>::value,
   size_t>::type
@@ -531,7 +531,7 @@ estimateSpaceNeeded(T) {
   return detail::digitsEnough<__int128>();
 }
 
-template<class T>
+template <class T>
 constexpr typename std::enable_if<
   std::is_same<T, unsigned __int128>::value,
   size_t>::type
@@ -558,7 +558,8 @@ toAppend(Src value, Tgt * result) {
   if (value < 0) {
     result->push_back('-');
     result->append(
-        buffer, uint64ToBufferUnsafe(uint64_t(-uint64_t(value)), buffer));
+        buffer,
+        uint64ToBufferUnsafe(~static_cast<uint64_t>(value) + 1, buffer));
   } else {
     result->append(buffer, uint64ToBufferUnsafe(uint64_t(value), buffer));
   }
@@ -655,7 +656,7 @@ estimateSpaceNeeded(Src value) {
 namespace detail {
 constexpr int kConvMaxDecimalInShortestLow = -6;
 constexpr int kConvMaxDecimalInShortestHigh = 21;
-} // folly::detail
+} // namespace detail
 
 /** Wrapper around DoubleToStringConverter **/
 template <class Tgt, class Src>
@@ -741,7 +742,7 @@ estimateSpaceNeeded(Src value) {
  * for estimateSpaceNeed for your type, so that we allocate
  * as much as you need instead of the default
  */
-template<class Src>
+template <class Src>
 struct HasLengthEstimator : std::false_type {};
 
 template <class Src>
@@ -775,12 +776,12 @@ size_t estimateSpaceToReserve(size_t sofar, const T& v, const Ts&... vs) {
   return estimateSpaceToReserve(sofar + estimateSpaceNeeded(v), vs...);
 }
 
-template<class...Ts>
+template <class... Ts>
 void reserveInTarget(const Ts&...vs) {
   getLastElement(vs...)->reserve(estimateSpaceToReserve(0, vs...));
 }
 
-template<class Delimiter, class...Ts>
+template <class Delimiter, class... Ts>
 void reserveInTargetDelim(const Delimiter& d, const Ts&...vs) {
   static_assert(sizeof...(vs) >= 2, "Needs at least 2 args");
   size_t fordelim = (sizeof...(vs) - 2) *
@@ -829,8 +830,7 @@ toAppendDelimStrImpl(const Delimiter& delim, const T& v, const Ts&... vs) {
   toAppend(delim, detail::getLastElement(vs...));
   toAppendDelimStrImpl(delim, vs...);
 }
-} // folly::detail
-
+} // namespace detail
 
 /**
  * Variadic conversion to string. Appends each element in turn.
@@ -985,11 +985,12 @@ to(Src value) {
  * toDelim<SomeString>(SomeString str) returns itself.
  */
 template <class Tgt, class Delim, class Src>
-typename std::enable_if<IsSomeString<Tgt>::value &&
-                            std::is_same<Tgt, Src>::value,
-                        Tgt>::type
-toDelim(const Delim& /* delim */, const Src& value) {
-  return value;
+typename std::enable_if<
+    IsSomeString<Tgt>::value &&
+        std::is_same<Tgt, typename std::decay<Src>::type>::value,
+    Tgt>::type
+toDelim(const Delim& /* delim */, Src&& value) {
+  return std::forward<Src>(value);
 }
 
 /**
@@ -1164,7 +1165,7 @@ to(const char* b, const char* e) {
  * Parsing strings to numeric types.
  */
 template <typename Tgt>
-FOLLY_WARN_UNUSED_RESULT inline typename std::enable_if<
+FOLLY_NODISCARD inline typename std::enable_if<
     std::is_arithmetic<Tgt>::value,
     Expected<StringPiece, ConversionCode>>::type
 parseTo(StringPiece src, Tgt& out) {
@@ -1179,13 +1180,14 @@ parseTo(StringPiece src, Tgt& out) {
 namespace detail {
 
 /**
- * Bool to integral doesn't need any special checks, and this
+ * Bool to integral/float doesn't need any special checks, and this
  * overload means we aren't trying to see if a bool is less than
  * an integer.
  */
 template <class Tgt>
 typename std::enable_if<
-    !std::is_same<Tgt, bool>::value && std::is_integral<Tgt>::value,
+    !std::is_same<Tgt, bool>::value &&
+        (std::is_integral<Tgt>::value || std::is_floating_point<Tgt>::value),
     Expected<Tgt, ConversionCode>>::type
 convertTo(const bool& value) noexcept {
   return static_cast<Tgt>(value ? 1 : 0);
@@ -1370,7 +1372,7 @@ typename std::enable_if<detail::IsArithToArith<Tgt, Src>::value, Tgt>::type to(
  * }
  ******************************************************************************/
 template <class T>
-FOLLY_WARN_UNUSED_RESULT typename std::enable_if<
+FOLLY_NODISCARD typename std::enable_if<
     std::is_enum<T>::value,
     Expected<StringPiece, ConversionCode>>::type
 parseTo(StringPiece in, T& out) noexcept {
@@ -1380,7 +1382,7 @@ parseTo(StringPiece in, T& out) noexcept {
   return restOrError;
 }
 
-FOLLY_WARN_UNUSED_RESULT
+FOLLY_NODISCARD
 inline Expected<StringPiece, ConversionCode> parseTo(
     StringPiece in,
     StringPiece& out) noexcept {
@@ -1388,7 +1390,7 @@ inline Expected<StringPiece, ConversionCode> parseTo(
   return StringPiece{in.end(), in.end()};
 }
 
-FOLLY_WARN_UNUSED_RESULT
+FOLLY_NODISCARD
 inline Expected<StringPiece, ConversionCode> parseTo(
     StringPiece in,
     std::string& out) {
@@ -1397,7 +1399,7 @@ inline Expected<StringPiece, ConversionCode> parseTo(
   return StringPiece{in.end(), in.end()};
 }
 
-FOLLY_WARN_UNUSED_RESULT
+FOLLY_NODISCARD
 inline Expected<StringPiece, ConversionCode> parseTo(
     StringPiece in,
     fbstring& out) {
@@ -1534,7 +1536,7 @@ tryTo(const Src& value) {
 template <class Tgt, class Src>
 typename std::enable_if<
     std::is_enum<Tgt>::value && !std::is_same<Src, Tgt>::value,
-    Tgt>::type
+    Expected<Tgt, ConversionCode>>::type
 tryTo(const Src& value) {
   using I = typename std::underlying_type<Tgt>::type;
   return tryTo<I>(value).then([](I i) { return static_cast<Tgt>(i); });

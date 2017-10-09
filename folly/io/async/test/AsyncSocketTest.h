@@ -96,7 +96,7 @@ class ReadCallback : public folly::AsyncTransportWrapper::ReadCallback {
         buffers(),
         maxBufferSz(_maxBufferSz) {}
 
-  ~ReadCallback() {
+  ~ReadCallback() override {
     for (std::vector<Buffer>::iterator it = buffers.begin();
          it != buffers.end();
          ++it) {
@@ -202,31 +202,62 @@ class BufferCallback : public folly::AsyncTransport::BufferCallback {
 class ReadVerifier {
 };
 
-class TestErrMessageCallback : public folly::AsyncSocket::ErrMessageCallback {
+class TestSendMsgParamsCallback :
+    public folly::AsyncSocket::SendMsgParamsCallback {
  public:
-  TestErrMessageCallback()
-    : exception_(folly::AsyncSocketException::UNKNOWN, "none")
+  TestSendMsgParamsCallback(int flags, uint32_t dataSize, void* data)
+  : flags_(flags),
+    writeFlags_(folly::WriteFlags::NONE),
+    dataSize_(dataSize),
+    data_(data),
+    queriedFlags_(false),
+    queriedData_(false)
   {}
 
-  void errMessage(const cmsghdr& cmsg) noexcept override {
-    if (cmsg.cmsg_level == SOL_SOCKET &&
-      cmsg.cmsg_type == SCM_TIMESTAMPING) {
-      gotTimestamp_ = true;
-    } else if (
-      (cmsg.cmsg_level == SOL_IP && cmsg.cmsg_type == IP_RECVERR) ||
-      (cmsg.cmsg_level == SOL_IPV6 && cmsg.cmsg_type == IPV6_RECVERR)) {
-      gotByteSeq_ = true;
+  void reset(int flags) {
+    flags_ = flags;
+    writeFlags_ = folly::WriteFlags::NONE;
+    queriedFlags_ = false;
+    queriedData_ = false;
+  }
+
+  int getFlagsImpl(folly::WriteFlags flags, int /*defaultFlags*/) noexcept
+                                                                  override {
+    queriedFlags_ = true;
+    if (writeFlags_ == folly::WriteFlags::NONE) {
+      writeFlags_ = flags;
+    } else {
+      assert(flags == writeFlags_);
     }
+    return flags_;
   }
 
-  void errMessageError(
-      const folly::AsyncSocketException& ex) noexcept override {
-    exception_ = ex;
+  void getAncillaryData(folly::WriteFlags flags, void* data) noexcept override {
+    queriedData_ = true;
+    if (writeFlags_ == folly::WriteFlags::NONE) {
+      writeFlags_ = flags;
+    } else {
+      assert(flags == writeFlags_);
+    }
+    assert(data != nullptr);
+    memcpy(data, data_, dataSize_);
   }
 
-  folly::AsyncSocketException exception_;
-  bool gotTimestamp_{false};
-  bool gotByteSeq_{false};
+  uint32_t getAncillaryDataSize(folly::WriteFlags flags) noexcept override {
+    if (writeFlags_ == folly::WriteFlags::NONE) {
+      writeFlags_ = flags;
+    } else {
+      assert(flags == writeFlags_);
+    }
+    return dataSize_;
+  }
+
+  int flags_;
+  folly::WriteFlags writeFlags_;
+  uint32_t dataSize_;
+  void* data_;
+  bool queriedFlags_;
+  bool queriedData_;
 };
 
 class TestServer {

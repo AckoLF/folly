@@ -15,24 +15,24 @@
  */
 
 #include <folly/detail/Futex.h>
-#include <stdint.h>
-#include <string.h>
-#include <condition_variable>
-#include <mutex>
 #include <boost/intrusive/list.hpp>
-#include <folly/CallOnce.h>
 #include <folly/Hash.h>
 #include <folly/ScopeGuard.h>
+#include <folly/portability/SysSyscall.h>
+#include <stdint.h>
+#include <string.h>
+#include <cerrno>
+#include <condition_variable>
+#include <mutex>
 
 #ifdef __linux__
-# include <errno.h>
-# include <linux/futex.h>
-# include <sys/syscall.h>
+#include <linux/futex.h>
 #endif
 
 using namespace std::chrono;
 
-namespace folly { namespace detail {
+namespace folly {
+namespace detail {
 
 namespace {
 
@@ -187,21 +187,14 @@ struct EmulatedFutexBucket {
   boost::intrusive::list<EmulatedFutexWaitNode> waiters_;
 
   static const size_t kNumBuckets = 4096;
-  static EmulatedFutexBucket* gBuckets;
-  static folly::once_flag gBucketInit;
 
   static EmulatedFutexBucket& bucketFor(void* addr) {
-    folly::call_once(gBucketInit, [](){
-      gBuckets = new EmulatedFutexBucket[kNumBuckets];
-    });
+    static auto gBuckets = new EmulatedFutexBucket[kNumBuckets];
     uint64_t mixedBits = folly::hash::twang_mix64(
         reinterpret_cast<uintptr_t>(addr));
     return gBuckets[mixedBits % kNumBuckets];
   }
 };
-
-EmulatedFutexBucket* EmulatedFutexBucket::gBuckets;
-folly::once_flag EmulatedFutexBucket::gBucketInit;
 
 int emulatedFutexWake(void* addr, int count, uint32_t waitMask) {
   auto& bucket = EmulatedFutexBucket::bucketFor(addr);
@@ -276,8 +269,7 @@ FutexResult emulatedFutexWaitImpl(
   return FutexResult::AWOKEN;
 }
 
-} // anon namespace
-
+} // namespace
 
 /////////////////////////////////
 // Futex<> specializations
@@ -324,4 +316,5 @@ Futex<EmulatedFutexAtomic>::futexWaitImpl(
       this, expected, absSystemTime, absSteadyTime, waitMask);
 }
 
-}} // namespace folly::detail
+} // namespace detail
+} // namespace folly

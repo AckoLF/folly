@@ -53,6 +53,19 @@ TEST(TemporaryFile, Simple) {
   });
 }
 
+TEST(TemporaryFile, EarlyClose) {
+  fs::path p;
+  {
+    TemporaryFile f;
+    p = f.path();
+    EXPECT_TRUE(fs::exists(p));
+    f.close();
+    EXPECT_EQ(-1, f.fd());
+    EXPECT_TRUE(fs::exists(p));
+  }
+  EXPECT_FALSE(fs::exists(p));
+}
+
 TEST(TemporaryFile, Prefix) {
   TemporaryFile f("Foo");
   EXPECT_TRUE(f.path().is_absolute());
@@ -118,7 +131,7 @@ TEST(TemporaryDirectory, SafelyMove) {
     expectTempdirExists(d);
     expectTempdirExists(d2);
 
-    dir = folly::make_unique<TemporaryDirectory>(std::move(d));
+    dir = std::make_unique<TemporaryDirectory>(std::move(d));
     dir2 = std::move(d2);
   }
 

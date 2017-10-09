@@ -26,8 +26,8 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <climits>
 #include <condition_variable>
-#include <limits.h>
 #include <map>
 #include <mutex>
 #include <set>
@@ -103,7 +103,7 @@ TEST(ThreadLocalPtr, DefaultDeleterOwnershipTransfer) {
   Widget::totalVal_ = 0;
   {
     ThreadLocalPtr<Widget> w;
-    auto source = folly::make_unique<Widget>();
+    auto source = std::make_unique<Widget>();
     std::thread([&w, &source]() {
       w.reset(std::move(source));
       w.get()->val_ += 10;
@@ -313,10 +313,12 @@ TEST(ThreadLocalPtr, AccessAllThreadsCounter) {
   std::atomic<int> totalAtomic(0);
   std::vector<std::thread> threads;
   for (int i = 0; i < kNumThreads; ++i) {
-    threads.push_back(std::thread([&,i]() {
+    threads.push_back(std::thread([&]() {
       stci.add(1);
       totalAtomic.fetch_add(1);
-      while (run.load()) { usleep(100); }
+      while (run.load()) {
+        usleep(100);
+      }
     }));
   }
   while (totalAtomic.load() != kNumThreads) { usleep(100); }
@@ -343,7 +345,7 @@ struct Tag {};
 struct Foo {
   folly::ThreadLocal<int, Tag> tl;
 };
-}  // namespace
+} // namespace
 
 TEST(ThreadLocal, Movable1) {
   Foo a;
@@ -413,7 +415,7 @@ class FillObject {
   uint64_t data_[kFillObjectSize];
 };
 
-}  // namespace
+} // namespace
 
 TEST(ThreadLocal, Stress) {
   static constexpr size_t numFillObjects = 250;
@@ -471,7 +473,7 @@ int totalValue() {
   return value;
 }
 
-}  // namespace
+} // namespace
 
 #ifdef FOLLY_HAVE_PTHREAD_ATFORK
 TEST(ThreadLocal, Fork) {
@@ -528,7 +530,7 @@ TEST(ThreadLocal, Fork) {
     EXPECT_TRUE(WIFEXITED(status));
     EXPECT_EQ(0, WEXITSTATUS(status));
   } else {
-    EXPECT_TRUE(false) << "fork failed";
+    ADD_FAILURE() << "fork failed";
   }
 
   EXPECT_EQ(2, totalValue());
@@ -571,7 +573,7 @@ TEST(ThreadLocal, Fork2) {
     EXPECT_TRUE(WIFEXITED(status));
     EXPECT_EQ(0, WEXITSTATUS(status));
   } else {
-    EXPECT_TRUE(false) << "fork failed";
+    ADD_FAILURE() << "fork failed";
   }
 }
 

@@ -14,13 +14,14 @@
  * limitations under the License.
  */
 
-#include <folly/io/async/AsyncUDPSocket.h>
-#include <folly/io/async/AsyncUDPServerSocket.h>
-#include <folly/io/async/AsyncTimeout.h>
-#include <folly/io/async/EventBase.h>
 #include <folly/SocketAddress.h>
+#include <folly/io/async/AsyncTimeout.h>
+#include <folly/io/async/AsyncUDPServerSocket.h>
+#include <folly/io/async/AsyncUDPSocket.h>
+#include <folly/io/async/EventBase.h>
 
 #include <folly/io/IOBuf.h>
+#include <folly/portability/GMock.h>
 #include <folly/portability/GTest.h>
 
 #include <thread>
@@ -31,6 +32,7 @@ using folly::AsyncTimeout;
 using folly::EventBase;
 using folly::SocketAddress;
 using folly::IOBuf;
+using namespace testing;
 
 class UDPAcceptor
     : public AsyncUDPServerSocket::Callback {
@@ -85,9 +87,7 @@ class UDPServer {
   void start() {
     CHECK(evb_->isInEventBaseThread());
 
-    socket_ = folly::make_unique<AsyncUDPServerSocket>(
-        evb_,
-        1500);
+    socket_ = std::make_unique<AsyncUDPServerSocket>(evb_, 1500);
 
     try {
       socket_->bind(addr_);
@@ -159,7 +159,7 @@ class UDPClient
     CHECK(evb_->isInEventBaseThread());
 
     server_ = server;
-    socket_ = folly::make_unique<AsyncUDPSocket>(evb_);
+    socket_ = std::make_unique<AsyncUDPSocket>(evb_);
 
     try {
       socket_->bind(folly::SocketAddress("127.0.0.1", 0));
@@ -291,3 +291,10 @@ TEST(AsyncSocketTest, PingPong) {
   // Wait for server thread to joib
   serverThread.join();
 }
+
+class TestAsyncUDPSocket : public AsyncUDPSocket {
+ public:
+  explicit TestAsyncUDPSocket(EventBase* evb) : AsyncUDPSocket(evb) {}
+
+  MOCK_METHOD3(sendmsg, ssize_t(int, const struct msghdr*, int));
+};

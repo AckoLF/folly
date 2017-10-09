@@ -24,6 +24,11 @@ using std::string;
 typedef FutureException eggs_t;
 static eggs_t eggs("eggs");
 
+TEST(Promise, makeEmpty) {
+  auto p = Promise<int>::makeEmpty();
+  EXPECT_TRUE(p.isFulfilled());
+}
+
 TEST(Promise, special) {
   EXPECT_FALSE(std::is_copy_constructible<Promise<int>>::value);
   EXPECT_FALSE(std::is_copy_assignable<Promise<int>>::value);
@@ -90,13 +95,13 @@ TEST(Promise, setException) {
   {
     Promise<Unit> p;
     auto f = p.getFuture();
-    try {
-      throw eggs;
-    } catch (const std::exception& e) {
-      p.setException(exception_wrapper(std::current_exception(), e));
-    } catch (...) {
-      p.setException(exception_wrapper(std::current_exception()));
-    }
+    p.setException(std::make_exception_ptr(eggs));
+    EXPECT_THROW(f.value(), eggs_t);
+  }
+  {
+    Promise<Unit> p;
+    auto f = p.getFuture();
+    p.setException(exception_wrapper(eggs));
     EXPECT_THROW(f.value(), eggs_t);
   }
 }
@@ -134,7 +139,7 @@ TEST(Promise, isFulfilledWithFuture) {
 }
 
 TEST(Promise, brokenOnDelete) {
-  auto p = folly::make_unique<Promise<int>>();
+  auto p = std::make_unique<Promise<int>>();
   auto f = p->getFuture();
 
   EXPECT_FALSE(f.isReady());
@@ -149,10 +154,10 @@ TEST(Promise, brokenOnDelete) {
 }
 
 TEST(Promise, brokenPromiseHasTypeInfo) {
-  auto pInt = folly::make_unique<Promise<int>>();
+  auto pInt = std::make_unique<Promise<int>>();
   auto fInt = pInt->getFuture();
 
-  auto pFloat = folly::make_unique<Promise<float>>();
+  auto pFloat = std::make_unique<Promise<float>>();
   auto fFloat = pFloat->getFuture();
 
   pInt.reset();

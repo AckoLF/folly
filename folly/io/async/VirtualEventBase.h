@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include <future>
+
 #include <folly/Baton.h>
 #include <folly/Executor.h>
 #include <folly/io/async/EventBase.h>
@@ -41,7 +43,7 @@ class VirtualEventBase : public folly::Executor, public folly::TimeoutManager {
   VirtualEventBase(const VirtualEventBase&) = delete;
   VirtualEventBase& operator=(const VirtualEventBase&) = delete;
 
-  ~VirtualEventBase();
+  ~VirtualEventBase() override;
 
   EventBase& getEventBase() {
     return evb_;
@@ -58,14 +60,6 @@ class VirtualEventBase : public folly::Executor, public folly::TimeoutManager {
    * VirtualEventBase
    */
   void runOnDestruction(EventBase::LoopCallback* callback);
-
-  /**
-   * @see EventBase::runInLoop
-   */
-  template <typename F>
-  void runInLoop(F&& f, bool thisIteration = false) {
-    evb_.runInLoop(std::forward<F>(f), thisIteration);
-  }
 
   /**
    * VirtualEventBase destructor blocks until all tasks scheduled through its
@@ -124,14 +118,9 @@ class VirtualEventBase : public folly::Executor, public folly::TimeoutManager {
 
   /**
    * Returns you a handle which prevents VirtualEventBase from being destroyed.
-   * KeepAlive handle can be released from EventBase loop only.
    */
   KeepAlive getKeepAliveToken() override {
-    if (evb_.inRunningEventBaseThread()) {
-      ++loopKeepAliveCount_;
-    } else {
-      ++loopKeepAliveCountAtomic_;
-    }
+    keepAliveAcquire();
     return makeKeepAlive();
   }
 
@@ -140,26 +129,51 @@ class VirtualEventBase : public folly::Executor, public folly::TimeoutManager {
   }
 
  protected:
+  void keepAliveAcquire() override {
+    DCHECK(loopKeepAliveCount_ + loopKeepAliveCountAtomic_.load() > 0);
+
+    if (evb_.inRunningEventBaseThread()) {
+      ++loopKeepAliveCount_;
+    } else {
+      ++loopKeepAliveCountAtomic_;
+    }
+  }
+
   void keepAliveRelease() override {
-    DCHECK(getEventBase().inRunningEventBaseThread());
+    if (!evb_.inRunningEventBaseThread()) {
+      return evb_.add([=] { keepAliveRelease(); });
+    }
     if (loopKeepAliveCountAtomic_.load()) {
       loopKeepAliveCount_ += loopKeepAliveCountAtomic_.exchange(0);
     }
     DCHECK(loopKeepAliveCount_ > 0);
     if (--loopKeepAliveCount_ == 0) {
-      loopKeepAliveBaton_.post();
+      destroyImpl();
     }
   }
 
  private:
+  friend class EventBase;
+
+  ssize_t keepAliveCount() {
+    if (loopKeepAliveCountAtomic_.load()) {
+      loopKeepAliveCount_ += loopKeepAliveCountAtomic_.exchange(0);
+    }
+    return loopKeepAliveCount_;
+  }
+
+  std::future<void> destroy();
+  void destroyImpl();
+
   using LoopCallbackList = EventBase::LoopCallback::List;
 
   EventBase& evb_;
 
-  ssize_t loopKeepAliveCount_{0};
+  ssize_t loopKeepAliveCount_{1};
   std::atomic<ssize_t> loopKeepAliveCountAtomic_{0};
-  folly::Baton<> loopKeepAliveBaton_;
-  KeepAlive loopKeepAlive_;
+  std::promise<void> destroyPromise_;
+  std::future<void> destroyFuture_{destroyPromise_.get_future()};
+  KeepAlive loopKeepAlive_{makeKeepAlive()};
 
   KeepAlive evbLoopKeepAlive_;
 

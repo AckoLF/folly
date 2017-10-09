@@ -16,20 +16,13 @@
 
 #pragma once
 
-#include <mutex>
 #include <list>
 #include <map>
-#include <vector>
 #include <memory>
-#include <string>
+#include <mutex>
 #include <random>
-
-// This has to come before SSL.
-#include <folly/portability/OpenSSL.h>
-#include <folly/portability/Sockets.h>
-
-#include <openssl/ssl.h>
-#include <openssl/tls1.h>
+#include <string>
+#include <vector>
 
 #include <glog/logging.h>
 
@@ -37,9 +30,13 @@
 #include <folly/folly-config.h>
 #endif
 
+#include <folly/Portability.h>
 #include <folly/Range.h>
-#include <folly/io/async/ssl/OpenSSLPtrTypes.h>
+#include <folly/String.h>
 #include <folly/io/async/ssl/OpenSSLUtils.h>
+#include <folly/portability/OpenSSL.h>
+#include <folly/ssl/OpenSSLLockTypes.h>
+#include <folly/ssl/OpenSSLPtrTypes.h>
 
 namespace folly {
 
@@ -72,11 +69,11 @@ class PasswordCollector {
  */
 class SSLContext {
  public:
-
   enum SSLVersion {
-     SSLv2,
-     SSLv3,
-     TLSv1
+    SSLv2,
+    SSLv3,
+    TLSv1, // support TLS 1.0+
+    TLSv1_2, // support for only TLS 1.2+
   };
 
   /**
@@ -135,25 +132,63 @@ class SSLContext {
   virtual void ciphers(const std::string& ciphers);
 
   /**
-   * Set default ciphers to be used in SSL handshake process.
-   *
-   * @param ciphers A list of ciphers to use for TLS.
-   */
-  virtual void setCipherList(const std::vector<std::string>& ciphers);
-
-  /**
    * Low-level method that attempts to set the provided ciphers on the
    * SSL_CTX object, and throws if something goes wrong.
    */
   virtual void setCiphersOrThrow(const std::string& ciphers);
 
   /**
-   * Sets the signature algorithms to be used during SSL negotiation
-   * for TLS1.2+
-   *
-   * @param sigalgs A list of signature algorithms, eg. RSA+SHA512
+   * Set default ciphers to be used in SSL handshake process.
    */
-  void setSignatureAlgorithms(const std::vector<std::string>& sigalgs);
+
+  template <typename Iterator>
+  void setCipherList(Iterator ibegin, Iterator iend) {
+    if (ibegin != iend) {
+      std::string opensslCipherList;
+      folly::join(":", ibegin, iend, opensslCipherList);
+      setCiphersOrThrow(opensslCipherList);
+    }
+  }
+
+  template <typename Container>
+  void setCipherList(const Container& cipherList) {
+    using namespace std;
+    setCipherList(begin(cipherList), end(cipherList));
+  }
+
+  template <typename Value>
+  void setCipherList(const std::initializer_list<Value>& cipherList) {
+    setCipherList(cipherList.begin(), cipherList.end());
+  }
+
+  /**
+   * Sets the signature algorithms to be used during SSL negotiation
+   * for TLS1.2+.
+   */
+
+  template <typename Iterator>
+  void setSignatureAlgorithms(Iterator ibegin, Iterator iend) {
+    if (ibegin != iend) {
+#if OPENSSL_VERSION_NUMBER >= 0x1000200fL
+      std::string opensslSigAlgsList;
+      join(":", ibegin, iend, opensslSigAlgsList);
+      if (!SSL_CTX_set1_sigalgs_list(ctx_, opensslSigAlgsList.c_str())) {
+        throw std::runtime_error("SSL_CTX_set1_sigalgs_list " + getErrors());
+      }
+#endif
+    }
+  }
+
+  template <typename Container>
+  void setSignatureAlgorithms(const Container& sigalgs) {
+    using namespace std;
+    setSignatureAlgorithms(begin(sigalgs), end(sigalgs));
+  }
+
+  template <typename Value>
+  void setSignatureAlgorithms(const std::initializer_list<Value>& sigalgs) {
+    setSignatureAlgorithms(sigalgs.begin(), sigalgs.end());
+  }
 
   /**
    * Sets the list of EC curves supported by the client.
@@ -427,34 +462,6 @@ class SSLContext {
     return ctx_;
   }
 
-  enum SSLLockType {
-    LOCK_MUTEX,
-    LOCK_SPINLOCK,
-    LOCK_NONE
-  };
-
-  /**
-   * Set preferences for how to treat locks in OpenSSL.  This must be
-   * called before the instantiation of any SSLContext objects, otherwise
-   * the defaults will be used.
-   *
-   * OpenSSL has a lock for each module rather than for each object or
-   * data that needs locking.  Some locks protect only refcounts, and
-   * might be better as spinlocks rather than mutexes.  Other locks
-   * may be totally unnecessary if the objects being protected are not
-   * shared between threads in the application.
-   *
-   * By default, all locks are initialized as mutexes.  OpenSSL's lock usage
-   * may change from version to version and you should know what you are doing
-   * before disabling any locks entirely.
-   *
-   * Example: if you don't share SSL sessions between threads in your
-   * application, you may be able to do this
-   *
-   * setSSLLockTypes({{CRYPTO_LOCK_SSL_SESSION, SSLContext::LOCK_NONE}})
-   */
-  static void setSSLLockTypes(std::map<int, SSLLockType> lockTypes);
-
   /**
    * Examine OpenSSL's error stack, and return a string description of the
    * errors.
@@ -462,17 +469,6 @@ class SSLContext {
    * This operation removes the errors from OpenSSL's error stack.
    */
   static std::string getErrors(int errnoCopy);
-
-  /**
-   * We want to vary which cipher we'll use based on the client's TLS version.
-   *
-   * XXX: The refernces to tls11CipherString and tls11AltCipherlist are reused
-   * for * each >= TLS 1.1 handshake, so we expect these fields to not change.
-   */
-  void switchCiphersIfTLS11(
-      SSL* ssl,
-      const std::string& tls11CipherString,
-      const std::vector<std::pair<std::string, int>>& tls11AltCipherlist);
 
   bool checkPeerName() { return checkPeerName_; }
   std::string peerFixedName() { return peerFixedName_; }
@@ -491,24 +487,8 @@ class SSLContext {
    */
   static bool matchName(const char* host, const char* pattern, int size);
 
-  /**
-   * Functions for setting up and cleaning up openssl.
-   * They can be invoked during the start of the application.
-   */
+  FOLLY_DEPRECATED("Use folly::ssl::init")
   static void initializeOpenSSL();
-  static void cleanupOpenSSL();
-
-  /**
-   * Mark openssl as initialized without actually performing any initialization.
-   * Please use this only if you are using a library which requires that it must
-   * make its own calls to SSL_library_init() and related functions.
-   */
-  static void markInitialized();
-
-  /**
-   * Default randomize method.
-   */
-  static void randomize();
 
  protected:
   SSL_CTX* ctx_;
@@ -528,9 +508,6 @@ class SSLContext {
 
   static bool initialized_;
 
-  // To provide control over choice of server ciphersuites
-  std::unique_ptr<std::discrete_distribution<int>> cipherListPicker_;
-
 #ifdef OPENSSL_NPN_NEGOTIATED
 
   struct AdvertisedNextProtocolsItem {
@@ -544,8 +521,6 @@ class SSLContext {
   std::vector<AdvertisedNextProtocolsItem> advertisedNextProtocols_;
   std::vector<int> advertisedNextProtocolWeights_;
   std::discrete_distribution<int> nextProtocolDistribution_;
-
-  static int sNextProtocolsExDataIndex_;
 
   static int advertisedNextProtocolCallback(SSL* ssl,
       const unsigned char** out, unsigned int* outlen, void* data);
@@ -586,15 +561,12 @@ class SSLContext {
 #endif
 
   std::string providedCiphersString_;
-
-  // Functions are called when locked by the calling function.
-  static void initializeOpenSSLLocked();
-  static void cleanupOpenSSLLocked();
 };
 
 typedef std::shared_ptr<SSLContext> SSLContextPtr;
 
-std::ostream& operator<<(std::ostream& os, const folly::PasswordCollector& collector);
+std::ostream& operator<<(
+    std::ostream& os,
+    const folly::PasswordCollector& collector);
 
-
-} // folly
+} // namespace folly

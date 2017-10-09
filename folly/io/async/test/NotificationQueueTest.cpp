@@ -15,15 +15,16 @@
  */
 
 #include <folly/io/async/NotificationQueue.h>
-#include <folly/io/async/ScopedEventBaseThread.h>
+
+#include <sys/types.h>
+
+#include <iostream>
+#include <list>
+#include <thread>
 
 #include <folly/Baton.h>
+#include <folly/io/async/ScopedEventBaseThread.h>
 #include <folly/portability/GTest.h>
-
-#include <list>
-#include <iostream>
-#include <thread>
-#include <sys/types.h>
 
 #ifndef _WIN32
 #include <sys/wait.h>
@@ -38,7 +39,7 @@ class QueueConsumer : public IntQueue::Consumer {
  public:
   QueueConsumer() {}
 
-  void messageAvailable(int&& value) override {
+  void messageAvailable(int&& value) noexcept override {
     messages.push_back(value);
     if (fn) {
       fn(value);
@@ -360,7 +361,7 @@ void QueueTest::destroyCallback() {
   // avoid destroying the function object.
   class DestroyTestConsumer : public IntQueue::Consumer {
    public:
-    void messageAvailable(int&& value) override {
+    void messageAvailable(int&& value) noexcept override {
       DestructorGuard g(this);
       if (fn && *fn) {
         (*fn)(value);
@@ -369,7 +370,7 @@ void QueueTest::destroyCallback() {
 
     std::function<void(int)> *fn;
    protected:
-    virtual ~DestroyTestConsumer() = default;
+    ~DestroyTestConsumer() override = default;
   };
 
   EventBase eventBase;

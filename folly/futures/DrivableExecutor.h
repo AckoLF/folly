@@ -39,7 +39,7 @@ namespace folly {
 
 class DrivableExecutor : public virtual Executor {
  public:
-  virtual ~DrivableExecutor() = default;
+  ~DrivableExecutor() override = default;
 
   // Make progress on this Executor's work.
   //
@@ -52,4 +52,4 @@ class DrivableExecutor : public virtual Executor {
   virtual void drive() = 0;
 };
 
-} // folly
+} // namespace folly

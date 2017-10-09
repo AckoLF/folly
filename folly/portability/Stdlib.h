@@ -20,7 +20,7 @@
 
 #if defined(__APPLE__)
 #if __has_include(<crt_externs.h>)
-#include <crt_externs.h>
+#include <crt_externs.h> // @manual
 #endif
 #endif
 
@@ -46,5 +46,9 @@ int unsetenv(const char* name);
 char*** _NSGetEnviron(void);
 #endif
 #define environ (*_NSGetEnviron())
+#endif
+
+#if !__linux__ && !FOLLY_MOBILE
+int clearenv();
 #endif
 }

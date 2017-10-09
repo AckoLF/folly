@@ -106,25 +106,26 @@ struct MemoryLeakCheckerAllocator {
     return alloc_ == other.alloc_;
   }
 
-private:
+ private:
   Alloc alloc_;
 };
 
-typedef MemoryLeakCheckerAllocator<std::allocator<char>> KeyLeakChecker;
-typedef MemoryLeakCheckerAllocator<
-  std::allocator<std::pair<const StringPiece, int>>> ValueLeakChecker;
+using KeyValuePairLeakChecker = MemoryLeakCheckerAllocator<
+    std::allocator<std::pair<const StringPiece, int>>>;
+using ValueLeakChecker =
+    MemoryLeakCheckerAllocator<std::allocator<StringPiece>>;
 
 typedef StringKeyedUnorderedMap<
     int,
     folly::Hash,
     std::equal_to<StringPiece>,
-    ValueLeakChecker>
+    KeyValuePairLeakChecker>
     LeakCheckedUnorderedMap;
 
 typedef StringKeyedSetBase<std::less<StringPiece>, ValueLeakChecker>
     LeakCheckedSet;
 
-typedef StringKeyedMap<int, std::less<StringPiece>, ValueLeakChecker>
+typedef StringKeyedMap<int, std::less<StringPiece>, KeyValuePairLeakChecker>
     LeakCheckedMap;
 
 using LeakCheckedUnorderedSet = BasicStringKeyedUnorderedSet<
@@ -355,7 +356,8 @@ TEST(StringKeyedUnorderedSetTest, constructors) {
   EXPECT_TRUE(s3.empty());
   EXPECT_TRUE(s6 == s5);
 
-  LeakCheckedUnorderedSet s7(std::move(s6), s6.get_allocator());
+  auto s6_allocator = s6.get_allocator();
+  LeakCheckedUnorderedSet s7(std::move(s6), s6_allocator);
   EXPECT_TRUE(s6.empty());
   EXPECT_TRUE(s7 == s5);
 

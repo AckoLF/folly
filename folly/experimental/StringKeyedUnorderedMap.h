@@ -47,7 +47,7 @@ class StringKeyedUnorderedMap
  private:
   using Base = std::unordered_map<StringPiece, Value, Hash, Eq, Alloc>;
 
-public:
+ public:
   typedef typename Base::key_type key_type;
   typedef typename Base::mapped_type mapped_type;
   typedef typename Base::value_type value_type;
@@ -151,9 +151,14 @@ public:
   using Base::cbegin;
   using Base::cend;
 
-  bool operator==(const StringKeyedUnorderedMap& rhs) {
-    const Base& lhs = *this;
+  bool operator==(StringKeyedUnorderedMap const& other) const {
+    Base const& lhs = *this;
+    Base const& rhs = static_cast<Base const&>(other);
     return lhs == rhs;
+  }
+
+  void swap(StringKeyedUnorderedMap& other) & {
+    return Base::swap(other);
   }
 
   // No need for copy/move overload as StringPiece is small struct.
@@ -231,4 +236,4 @@ public:
   }
 };
 
-} // folly
+} // namespace folly

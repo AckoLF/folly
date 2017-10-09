@@ -32,16 +32,16 @@ static void duration_to_ts(
                          .count());
 }
 
-#if !FOLLY_HAVE_CLOCK_GETTIME
+#if !FOLLY_HAVE_CLOCK_GETTIME || FOLLY_FORCE_CLOCK_GETTIME_DEFINITION
 #if __MACH__
 #include <errno.h>
-#include <mach/mach_init.h>
-#include <mach/mach_port.h>
-#include <mach/mach_time.h>
-#include <mach/mach_types.h>
-#include <mach/task.h>
-#include <mach/thread_act.h>
-#include <mach/vm_map.h>
+#include <mach/mach_init.h> // @manual
+#include <mach/mach_port.h> // @manual
+#include <mach/mach_time.h> // @manual
+#include <mach/mach_types.h> // @manual
+#include <mach/task.h> // @manual
+#include <mach/thread_act.h> // @manual
+#include <mach/vm_map.h> // @manual
 
 static std::chrono::nanoseconds time_value_to_ns(time_value_t t) {
   return std::chrono::seconds(t.seconds) +
@@ -215,7 +215,7 @@ extern "C" int clock_gettime(clockid_t clock_id, struct timespec* tp) {
   }
 
   const auto unanosToTimespec = [](timespec* tp, unsigned_nanos t) -> int {
-    static constexpr unsigned_nanos one_sec(std::chrono::seconds(1));
+    static constexpr unsigned_nanos one_sec{std::chrono::seconds(1)};
     tp->tv_sec =
         time_t(std::chrono::duration_cast<std::chrono::seconds>(t).count());
     tp->tv_nsec = long((t % one_sec).count());
@@ -325,9 +325,10 @@ int nanosleep(const struct timespec* request, struct timespec* remain) {
   return 0;
 }
 
-char* strptime(const char* __restrict s,
-               const char* __restrict f,
-               struct tm* __restrict tm) {
+char* strptime(
+    const char* __restrict s,
+    const char* __restrict f,
+    struct tm* __restrict tm) {
   // Isn't the C++ standard lib nice? std::get_time is defined such that its
   // format parameters are the exact same as strptime. Of course, we have to
   // create a string stream first, and imbue it with the current C locale, and

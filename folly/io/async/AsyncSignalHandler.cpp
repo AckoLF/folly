@@ -38,6 +38,18 @@ AsyncSignalHandler::~AsyncSignalHandler() {
   }
 }
 
+void AsyncSignalHandler::attachEventBase(EventBase* eventBase) {
+  assert(eventBase_ == nullptr);
+  assert(signalEvents_.empty());
+  eventBase_ = eventBase;
+}
+
+void AsyncSignalHandler::detachEventBase() {
+  assert(eventBase_ != nullptr);
+  assert(signalEvents_.empty());
+  eventBase_ = nullptr;
+}
+
 void AsyncSignalHandler::registerSignalHandler(int signum) {
   pair<SignalEventMap::iterator, bool> ret =
     signalEvents_.insert(make_pair(signum, event()));
@@ -87,4 +99,4 @@ void AsyncSignalHandler::libeventCallback(libevent_fd_t signum,
   handler->signalReceived(int(signum));
 }
 
-} // folly
+} // namespace folly

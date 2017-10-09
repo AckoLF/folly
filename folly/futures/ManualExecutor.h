@@ -15,13 +15,15 @@
  */
 
 #pragma once
-#include <folly/LifoSem.h>
-#include <folly/futures/DrivableExecutor.h>
-#include <folly/futures/ScheduledExecutor.h>
+
+#include <cstdio>
 #include <memory>
 #include <mutex>
 #include <queue>
-#include <cstdio>
+
+#include <folly/LifoSem.h>
+#include <folly/futures/DrivableExecutor.h>
+#include <folly/futures/ScheduledExecutor.h>
 
 namespace folly {
   /// A ManualExecutor only does work when you turn the crank, by calling
@@ -73,7 +75,7 @@ namespace folly {
 
     }
 
-    virtual void scheduleAt(Func&& f, TimePoint const& t) override {
+    void scheduleAt(Func&& f, TimePoint const& t) override {
       std::lock_guard<std::mutex> lock(lock_);
       scheduledFuncs_.emplace(t, std::move(f));
       sem_.post();
@@ -128,9 +130,11 @@ namespace folly {
       }
 
       bool operator<(ScheduledFunc const& b) const {
+        // Earlier-scheduled things must be *higher* priority
+        // in the max-based std::priority_queue
         if (time == b.time)
-          return ordinal < b.ordinal;
-        return time < b.time;
+          return ordinal > b.ordinal;
+        return time > b.time;
       }
 
       Func&& moveOutFunc() const {
@@ -138,7 +142,7 @@ namespace folly {
       }
     };
     std::priority_queue<ScheduledFunc> scheduledFuncs_;
-    TimePoint now_ = now_.min();
+    TimePoint now_ = TimePoint::min();
   };
 
 }

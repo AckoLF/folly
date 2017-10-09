@@ -49,7 +49,7 @@ static size_t nonMagicInBytes(unsigned char* stackLimit, size_t stackSize) {
   return (end - firstNonMagic) * sizeof(uint64_t);
 }
 
-} // anonymous namespace
+} // namespace
 
 void Fiber::resume() {
   DCHECK_EQ(state_, AWAITING);
@@ -187,6 +187,10 @@ void Fiber::preempt(State state) {
   } else {
     preemptImpl();
   }
+}
+
+Fiber::LocalData::~LocalData() {
+  reset();
 }
 
 Fiber::LocalData::LocalData(const LocalData& other) : data_(nullptr) {

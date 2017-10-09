@@ -16,19 +16,19 @@
 
 #include <folly/AtomicUnorderedMap.h>
 
-#include <semaphore.h>
 #include <thread>
 #include <unordered_map>
 
 #include <folly/Benchmark.h>
 #include <folly/portability/GFlags.h>
 #include <folly/portability/GTest.h>
+#include <folly/portability/Semaphore.h>
 #include <folly/test/DeterministicSchedule.h>
 
 using namespace folly;
 using namespace folly::test;
 
-template<class T>
+template <class T>
 struct non_atomic {
   T value;
 
@@ -88,11 +88,12 @@ struct non_atomic {
   bool is_lock_free() const {return true;}
 };
 
-template <typename Key,
-          typename Value,
-          typename IndexType,
-          template <typename> class Atom = std::atomic,
-          typename Allocator = std::allocator<char>>
+template <
+    typename Key,
+    typename Value,
+    typename IndexType,
+    template <typename> class Atom = std::atomic,
+    typename Allocator = std::allocator<char>>
 using UIM =
     AtomicUnorderedInsertMap<Key,
                              Value,

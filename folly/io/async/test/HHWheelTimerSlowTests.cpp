@@ -296,7 +296,7 @@ TEST_F(HHWheelTimerTest, Stress) {
           timeout - 256);
       timeouts[i].fn = [&, i, timeout]() {
         LOG(INFO) << "FAIL:timer " << i << " still fired in " << timeout;
-        EXPECT_FALSE(true);
+        ADD_FAILURE();
       };
     } else {
       t.scheduleTimeout(&timeouts[i], std::chrono::milliseconds(timeout));
@@ -307,7 +307,7 @@ TEST_F(HHWheelTimerTest, Stress) {
         runtimeouts++;
         /* sleep override */ usleep(1000);
         LOG(INFO) << "Ran " << runtimeouts << " timeouts of " << timeoutcount;
-        timeouts[i].fn = [&, i]() {
+        timeouts[i].fn = [&]() {
           runtimeouts++;
           LOG(INFO) << "Ran " << runtimeouts << " timeouts of " << timeoutcount;
         };

@@ -25,11 +25,11 @@
 #ifdef __APPLE__
 #include <folly/ThreadLocal.h>
 #endif
+#include <folly/Try.h>
 #include <folly/fibers/Baton.h>
 #include <folly/fibers/Fiber.h>
 #include <folly/fibers/LoopController.h>
 #include <folly/fibers/Promise.h>
-#include <folly/Try.h>
 
 namespace folly {
 namespace fibers {
@@ -37,8 +37,9 @@ namespace fibers {
 namespace {
 
 inline FiberManager::Options preprocessOptions(FiberManager::Options opts) {
-#if defined(FOLLY_SANITIZE_ADDRESS) || defined(UNDEFINED_SANITIZER)
-  /* ASAN/UBSAN needs a lot of extra stack space.
+#if defined(FOLLY_SANITIZE_ADDRESS) || defined(UNDEFINED_SANITIZER) || \
+    defined(FOLLY_SANITIZE_THREAD)
+  /* Sanitizers need a lot of extra stack space.
      16x is a conservative estimate, 8x also worked with tests
      where it mattered.  Note that overallocating here does not necessarily
      increase RSS, since unused memory is pretty much free. */
@@ -47,7 +48,7 @@ inline FiberManager::Options preprocessOptions(FiberManager::Options opts) {
   return opts;
 }
 
-} // anonymous
+} // namespace
 
 inline void FiberManager::ensureLoopScheduled() {
   if (isLoopScheduled_) {
@@ -313,10 +314,10 @@ void FiberManager::addTaskRemote(F&& func) {
     auto currentFm = getFiberManagerUnsafe();
     if (currentFm && currentFm->currentFiber_ &&
         currentFm->localType_ == localType_) {
-      return folly::make_unique<RemoteTask>(
+      return std::make_unique<RemoteTask>(
           std::forward<F>(func), currentFm->currentFiber_->localData_);
     }
-    return folly::make_unique<RemoteTask>(std::forward<F>(func));
+    return std::make_unique<RemoteTask>(std::forward<F>(func));
   }();
   auto insertHead = [&]() {
     return remoteTaskQueue_.insertHead(task.release());

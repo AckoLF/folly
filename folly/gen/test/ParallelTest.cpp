@@ -14,11 +14,11 @@
  * limitations under the License.
  */
 
-#include <glog/logging.h>
-
-#include <iostream>
 #include <array>
+#include <iostream>
 #include <vector>
+
+#include <glog/logging.h>
 
 #include <folly/gen/Base.h>
 #include <folly/gen/Parallel.h>
@@ -50,7 +50,7 @@ static auto isPrime = [](int n) {
 };
 
 struct {
-  template<class T>
+  template <class T>
   std::unique_ptr<T> operator()(T t) const {
     return std::unique_ptr<T>(new T(std::move(t)));
   }

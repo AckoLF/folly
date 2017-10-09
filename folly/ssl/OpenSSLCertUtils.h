@@ -18,9 +18,10 @@
 #include <string>
 #include <vector>
 
-#include <openssl/x509.h>
-
 #include <folly/Optional.h>
+#include <folly/io/IOBuf.h>
+#include <folly/portability/OpenSSL.h>
+#include <folly/ssl/OpenSSLPtrTypes.h>
 
 namespace folly {
 namespace ssl {
@@ -31,6 +32,52 @@ class OpenSSLCertUtils {
   static Optional<std::string> getCommonName(X509& x509);
 
   static std::vector<std::string> getSubjectAltNames(X509& x509);
+
+  /*
+   * Return the subject name, if any, from the cert
+   * @param x509    Reference to an X509
+   * @return a folly::Optional<std::string>, or folly::none
+   */
+  static Optional<std::string> getSubject(X509& x509);
+
+  /*
+   * Return the issuer name, if any, from the cert
+   * @param x509    Reference to an X509
+   * @return a folly::Optional<std::string>, or folly::none
+   */
+  static Optional<std::string> getIssuer(X509& x509);
+
+  /*
+   * Get a string representation of the not-before time on the certificate
+   */
+  static std::string getNotBeforeTime(X509& x509);
+
+  /*
+   * Get a string representation of the not-after (expiration) time
+   */
+  static std::string getNotAfterTime(X509& x509);
+
+  /*
+   * Summarize the CN, Subject, Issuer, Validity, and extensions as a string
+   */
+  static folly::Optional<std::string> toString(X509& x509);
+
+  /**
+   * Decodes the DER representation of an X509 certificate.
+   *
+   * Throws on error (if a valid certificate can't be decoded).
+   */
+  static X509UniquePtr derDecode(ByteRange);
+
+  /**
+   * DER encodes an X509 certificate.
+   *
+   * Throws on error.
+   */
+  static std::unique_ptr<IOBuf> derEncode(X509&);
+
+ private:
+  static std::string getDateTimeStr(const ASN1_TIME* time);
 };
 }
 }
